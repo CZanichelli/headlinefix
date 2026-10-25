@@ -55,6 +55,8 @@ async function ordana(body: Record<string, unknown>): Promise<Record<string, unk
       }
       const data = (await res.json().catch(() => null)) as Record<string, unknown> | null
       if (!data) throw new Error(`Ordana answered ${res.status} without JSON`)
+      // A refusal with a reason (e.g. unknown_attachment) is an answer, not an outage.
+      if (!res.ok && body.action === 'check' && typeof data.reason === 'string') return { ...data, entitled: false }
       if (!res.ok) throw new Error(`Ordana ${body.action} failed (${res.status}): ${String(data.error ?? data.reason ?? '')}`)
       return data
     } catch (e) {
