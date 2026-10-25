@@ -15,7 +15,7 @@ Manage it at https://platform.joinordana.com/scenario/ab5b4b1f-61d9-4db7-bb2a-ba
 | Path | What |
 | --- | --- |
 | `src/ordana-widget/` | All widget UI: `Widget.tsx` (shared screens), `EmbedPage.tsx`, `PreviewPage.tsx`, `SignInPages.tsx` (sign-in popup), `liveBackend.ts`, `theme.ts`, `storage.ts`, `types.ts`, `widget.css`, `routes.tsx` |
-| `api/ordana-widget/` | Vercel functions: `authorize.ts`, `session.ts`, `check.ts`, shared `_lib.ts`, `_env.d.ts` |
+| `api/ordana-widget/` | Vercel functions: `authorize.ts`, `session.ts`, `check.ts`, `whoami.ts`, shared `_lib.ts`, `_env.d.ts` |
 | `src/App.tsx` | Two lines: import and render `ordanaWidgetRoutes` |
 | `vercel.json` | SPA rewrite skips `/api/`; `frame-ancestors *` header on `/ordana-widget/embed` |
 | `tsconfig.json` | `"api"` added to `include` |
@@ -26,22 +26,28 @@ Manage it at https://platform.joinordana.com/scenario/ab5b4b1f-61d9-4db7-bb2a-ba
 
 | Name | Set when | What |
 | --- | --- | --- |
-| `ORDANA_WIDGET_KEY` | After the paste (Your widget → Connect your server) | Server key. `wsk_live_…` in Production, `wsk_test_…` only locally. Without it the widget runs unmetered and nothing is counted. |
-| `ORDANA_API_URL` | Only if Ordana's instructions give a different base URL | Entitlement API base. The request shape in `api/ordana-widget/_lib.ts` is provisional until the connect prompt. |
-| `ORDANA_OIDC_ISSUER`, `ORDANA_OIDC_CLIENT_ID`, `ORDANA_OIDC_CLIENT_SECRET` | After the paste | "Continue with Ordana" (OpenID Connect). Redirect URI to register: `https://<production-domain>/ordana-widget/callback` |
-| `ORDANA_WIDGET_SESSION_SECRET` | Before sign-in is switched on | Random string (32+ chars) used to sign widget sessions. |
+| `ORDANA_WIDGET_KEY` | Required (Your widget → Connect your server) | Server key. `wsk_live_…` in Production, `wsk_test_…` only locally. It is also the OIDC client secret and (by default) the session-signing secret. Without it the widget runs unmetered and nothing is counted. |
+| `ORDANA_API_URL` | Optional override | Entitlement endpoint; defaults to Ordana's `widget-entitlements` function. |
+| `ORDANA_OIDC_ISSUER`, `ORDANA_OIDC_CLIENT_ID`, `ORDANA_OIDC_CLIENT_SECRET` | Optional overrides | Default to Ordana's issuer, this widget's client id, and `ORDANA_WIDGET_KEY`. Redirect URI: `https://headlinefix.vercel.app/ordana-widget/callback` |
+| `ORDANA_WIDGET_SESSION_SECRET` | Optional | Separate secret for widget sessions. If it isn't set, one is derived from `ORDANA_WIDGET_KEY`, so rotating the key signs everyone out of the widget. |
 
 Redeploy after adding or changing any of them.
 
 ## How it works
 
 - `Widget.tsx` renders every screen. It gets a `WidgetBackend`: the embed's talks to `/api/ordana-widget/*`, the preview's is fake.
-- Sign-in: a popup opens `/ordana-widget/signin` (makes a PKCE pair) → `/api/ordana-widget/authorize` → Ordana →
-  `/ordana-widget/callback`, which posts the code to the embed (same origin only). The embed sends it to
-  `/api/ordana-widget/session`, which exchanges it and returns a signed session. Identity is the Ordana subject; there is no user table.
-- Before every rewrite the embed calls `/api/ordana-widget/check` with `consume: 1`; the server asks Ordana's entitlement check.
-  Ordana counts the use, enforces the free rewrites and returns `checkout_url` for the paywall. The rewrite itself is the existing
-  rule-based `rewriteHeadline`, run in the browser.
+- Sign-in: a popup opens `/ordana-widget/signin?host=wak_…` (makes the PKCE pair and a nonce) → `/api/ordana-widget/authorize` → Ordana
+  (with `&host=` the attachment key) → `/ordana-widget/callback`, which posts the code to the embed (same origin only). The embed sends it to
+  `/api/ordana-widget/session`. That endpoint exchanges the code, verifies the ID token's ES256 signature against Ordana's JWKS plus
+  iss/aud/exp/nonce, and returns a signed session. Identity is the Ordana `sub` (`oid_…`); there is no user table.
+  If the token exchange returns `invalid_grant` (consent withdrawn), the user stays signed out.
+- Before every rewrite the embed calls `/api/ordana-widget/check` with `consume: 1`; the server sends
+  `{ action: "check", attachment_key, end_user_ref: sub, consume }` to Ordana. Ordana counts the use, enforces the free rewrites and
+  returns `checkout_url` for the paywall (opened in a new tab) or a reason, which the widget shows as "Not available right now".
+  It also returns `manage_url` for subscribers, shown as "Manage billing". Network errors, 5xx and 429 responses are retried with backoff, then the request fails closed.
+  Answers with `consume: 0` are cached for `cache_ttl_s`. Nothing is released, because a rewrite can't fail after it is counted
+  (the existing rule-based `rewriteHeadline` runs in the browser).
+- `/api/ordana-widget/whoami` calls Ordana's `whoami` and reports only `livemode`, `billing_live`, the widget name and the number of hosts.
 - A/B versions: on load the embed calls `check` with `consume: 0` and reads `variant`. Anything other than `"b"` means version a.
   The version is kept for the session.
 - The theme URL parameters (`theme, accent, accent_text, bg, surface, text, muted, border, radius, font, frame=none, host, fit=fill`)

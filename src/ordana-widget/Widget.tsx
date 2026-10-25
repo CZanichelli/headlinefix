@@ -339,8 +339,8 @@ export default function Widget({ backend, variant, mode, look, initial = {} }: P
 
           {phase === 'blocked' && (
             <section className="ow-panel" role="status">
-              <p className="ow-strong">Free rewrites are paused here for now</p>
-              <p className="ow-small ow-muted">This site has used its free rewrites for the month. Please try again later.</p>
+              <p className="ow-strong">Not available right now</p>
+              <p className="ow-small ow-muted">Rewrites are paused here for the moment. Please try again later.</p>
             </section>
           )}
 
@@ -545,7 +545,7 @@ function BillingPanel({
     )
   }
   const url = state.checkoutUrl ?? state.creditPackUrl
-  const paid = state.entitled && state.remaining === null && state.plan !== null && state.plan !== 'free'
+  const paid = Boolean(state.manageUrl) || (state.entitled && state.plan !== null && state.plan !== 'free')
   return (
     <section className="ow-stack">
       <p className="ow-strong">Billing</p>
@@ -562,6 +562,11 @@ function BillingPanel({
         <button type="button" className="ow-btn ow-btn-primary" onClick={() => onUpgrade(url)}>
           Upgrade for unlimited
         </button>
+      )}
+      {state.manageUrl && (
+        <a className="ow-btn ow-start" href={state.manageUrl} target="_blank" rel="noopener">
+          Manage billing
+        </a>
       )}
       <p className="ow-small ow-muted">Payments and receipts are handled by Ordana.</p>
     </section>

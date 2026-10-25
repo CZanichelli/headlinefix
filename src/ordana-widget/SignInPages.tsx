@@ -5,6 +5,7 @@ import { session } from './storage'
 
 const STATE_KEY = 'ow_oidc_state'
 const VERIFIER_KEY = 'ow_oidc_verifier'
+const NONCE_KEY = 'ow_oidc_nonce'
 
 function randomString(bytes = 32): string {
   const a = crypto.getRandomValues(new Uint8Array(bytes))
@@ -24,15 +25,18 @@ function Shell({ children }: { children: ReactNode }) {
   )
 }
 
-/** /ordana-widget/signin — makes the PKCE pair, then hands over to Ordana via our server. */
+/** /ordana-widget/signin?host=wak_… — makes the PKCE pair and nonce, then hands over to Ordana via our server. */
 export function SignInStart() {
   useEffect(() => {
+    const host = new URLSearchParams(window.location.search).get('host') ?? ''
     const state = randomString(16)
+    const nonce = randomString(16)
     const verifier = randomString(32)
     session.set(STATE_KEY, state)
+    session.set(NONCE_KEY, nonce)
     session.set(VERIFIER_KEY, verifier)
     challengeFor(verifier).then((challenge) => {
-      const q = new URLSearchParams({ state, code_challenge: challenge })
+      const q = new URLSearchParams({ state, nonce, code_challenge: challenge, host })
       window.location.replace(`/api/ordana-widget/authorize?${q}`)
     })
   }, [])
@@ -50,8 +54,10 @@ export function SignInCallback() {
     const q = new URLSearchParams(window.location.search)
     const opener = window.opener as Window | null
     const verifier = session.get(VERIFIER_KEY)
+    const nonce = session.get(NONCE_KEY)
     const stateOk = q.get('state') !== null && q.get('state') === session.get(STATE_KEY)
     session.remove(STATE_KEY)
+    session.remove(NONCE_KEY)
     session.remove(VERIFIER_KEY)
 
     const error = q.get('error') ?? (!stateOk || !q.get('code') ? 'invalid_response' : null)
@@ -62,7 +68,7 @@ export function SignInCallback() {
     opener.postMessage(
       error
         ? { type: 'ordana-widget:signin', error }
-        : { type: 'ordana-widget:signin', code: q.get('code'), verifier },
+        : { type: 'ordana-widget:signin', code: q.get('code'), verifier, nonce },
       window.location.origin,
     )
     if (error === 'not_configured') {

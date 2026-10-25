@@ -12,6 +12,8 @@ type CheckResponse = {
   paywall: boolean
   checkout_url: string | null
   credit_pack_url: string | null
+  manage_url: string | null
+  reason: string | null
   remaining: number | null
   plan: string | null
   variant: string | null
@@ -32,6 +34,8 @@ function toResult(r: CheckResponse): CheckResult {
     paywall: r.paywall,
     checkoutUrl: r.checkout_url,
     creditPackUrl: r.credit_pack_url,
+    manageUrl: r.manage_url,
+    reason: r.reason,
     remaining: r.remaining,
     plan: r.plan,
   }
@@ -76,9 +80,9 @@ export async function fetchVariant(hostKey: string): Promise<Variant> {
 }
 
 /** "Continue with Ordana": a popup on our own origin runs the OIDC redirect and posts the code back. */
-function signInPopup(): Promise<WidgetUser> {
+function signInPopup(hostKey: string): Promise<WidgetUser> {
   const popup = window.open(
-    '/ordana-widget/signin',
+    `/ordana-widget/signin?host=${encodeURIComponent(hostKey)}`,
     'ordana-widget-signin',
     'popup,width=480,height=680,left=' + Math.round(screen.width / 2 - 240),
   )
@@ -93,10 +97,10 @@ function signInPopup(): Promise<WidgetUser> {
     }
     async function onMessage(e: MessageEvent) {
       if (e.origin !== window.location.origin) return
-      const d = e.data as { type?: string; code?: string; verifier?: string; error?: string } | null
+      const d = e.data as { type?: string; code?: string; verifier?: string; nonce?: string; error?: string } | null
       if (!d || d.type !== 'ordana-widget:signin') return
       finish()
-      if (d.error || !d.code || !d.verifier) {
+      if (d.error || !d.code || !d.verifier || !d.nonce) {
         reject(
           new Error(
             d.error === 'not_configured'
@@ -110,9 +114,10 @@ function signInPopup(): Promise<WidgetUser> {
         const res = await fetch(`${API}/session`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code: d.code, verifier: d.verifier }),
+          body: JSON.stringify({ code: d.code, verifier: d.verifier, nonce: d.nonce }),
         })
         const data = await res.json().catch(() => null)
+        if (data?.error === 'signed_out') throw new Error('Your Ordana sign-in was withdrawn. Please continue with Ordana again.')
         if (!res.ok || !data?.token) throw new Error(data?.error ?? 'Sign-in didn’t finish. Please try again.')
         local.set(TOKEN_KEY, data.token)
         local.set(USER_KEY, JSON.stringify(data.user))
@@ -145,7 +150,7 @@ export function createLiveBackend(hostKey: string): WidgetBackend {
         return null
       }
     },
-    signIn: signInPopup,
+    signIn: () => signInPopup(hostKey),
     signOut() {
       local.remove(TOKEN_KEY)
       local.remove(USER_KEY)

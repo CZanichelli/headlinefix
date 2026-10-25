@@ -61,6 +61,8 @@ function createDemoBackend(screen: Screen, notify: (text: string) => void): Widg
     paywall: !entitled,
     checkoutUrl: paid ? null : DEMO_CHECKOUT,
     creditPackUrl: null,
+    manageUrl: paid ? 'https://billing.example/demo' : null,
+    reason: entitled ? null : 'free_limit_reached',
     remaining: paid ? null : remaining,
     plan: paid ? 'unlimited' : 'free',
   })

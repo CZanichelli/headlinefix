@@ -9,6 +9,10 @@ export type CheckResult = {
   paywall: boolean
   checkoutUrl: string | null
   creditPackUrl: string | null
+  /** Subscribers' "Manage billing" link. */
+  manageUrl: string | null
+  /** Why not entitled, e.g. "host_cap_reached". */
+  reason: string | null
   remaining: number | null
   plan: string | null
 }

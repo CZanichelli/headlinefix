@@ -17,13 +17,15 @@ export async function POST(request: Request): Promise<Response> {
   if (session === null) return json({ error: 'signed_out' }, 401)
   if (consume === 1 && !session) return json({ error: 'signed_out' }, 401)
 
-  const user = session ? `ordana:${session.sub}` : visitor ? `visitor:${visitor}` : null
-  if (!user) return json({ error: 'Missing visitor.' }, 400)
+  // end_user_ref: the Ordana "sub" (oid_…) when signed in, else an opaque visitor id. Never an email.
+  const endUserRef = session ? session.sub : visitor ? `visitor_${visitor}` : null
+  if (!endUserRef) return json({ error: 'Missing visitor.' }, 400)
 
   try {
-    return json(await checkEntitlement(key, user, consume))
+    return json(await checkEntitlement(key, endUserRef, consume))
   } catch (e) {
-    console.error('ordana-widget check', e)
+    // Fail closed: no rewrite without an answer from Ordana.
+    console.error('ordana-widget check', e instanceof Error ? e.message : e)
     return json({ error: 'Couldn’t check your free rewrites. Please try again.' }, 502)
   }
 }
