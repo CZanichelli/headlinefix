@@ -5,10 +5,12 @@ import AppPage from './pages/AppPage'
 import Pricing from './pages/Pricing'
 import { Login, Signup } from './pages/AuthPages'
 import Account from './pages/Account'
+import { ordanaWidgetRoutes } from './ordana-widget/routes'
 
 export default function App() {
   return (
     <Routes>
+      {ordanaWidgetRoutes}
       <Route element={<Layout />}>
         <Route path="/" element={<Landing />} />
         <Route path="/app" element={<AppPage />} />

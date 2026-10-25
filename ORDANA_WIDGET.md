@@ -1,0 +1,76 @@
+# Ordana widget
+
+HeadlineFix's headline rewriter as an Ordana widget that other products embed.
+Manage it at https://platform.joinordana.com/scenario/ab5b4b1f-61d9-4db7-bb2a-ba41ae19bc5d?tab=widget
+
+- **Embed** (what hosts mount): `/ordana-widget/embed?key=wak_…&mode=card|page|modal`
+- **Preview** (fictional data, no auth, no network): `/ordana-widget-preview`
+- White-label: no HeadlineFix name, logo, colours or links anywhere in the widget. The ⋯ menu is
+  Account · Billing · Settings · Help, ending in "Made on Ordana".
+- Offer (set in Ordana, not in code): 20 free rewrites a month, then €5/month for unlimited rewrites.
+  Host share 40%, Ordana 10%, HeadlineFix 50%. Cost guard: 2,000 free rewrites per host per month.
+
+## Files (delete these to remove the widget)
+
+| Path | What |
+| --- | --- |
+| `src/ordana-widget/` | All widget UI: `Widget.tsx` (shared screens), `EmbedPage.tsx`, `PreviewPage.tsx`, `SignInPages.tsx` (sign-in popup), `liveBackend.ts`, `theme.ts`, `storage.ts`, `types.ts`, `widget.css`, `routes.tsx` |
+| `api/ordana-widget/` | Vercel functions: `authorize.ts`, `session.ts`, `check.ts`, shared `_lib.ts`, `_env.d.ts` |
+| `src/App.tsx` | Two lines: import and render `ordanaWidgetRoutes` |
+| `vercel.json` | SPA rewrite skips `/api/`; `frame-ancestors *` header on `/ordana-widget/embed` |
+| `tsconfig.json` | `"api"` added to `include` |
+| `.env.example` | The Ordana variables below |
+| `CLAUDE.md` | "Ordana widget" section |
+
+## Environment variables (Vercel → Project → Settings → Environment Variables → Production)
+
+| Name | Set when | What |
+| --- | --- | --- |
+| `ORDANA_WIDGET_KEY` | After the paste (Your widget → Connect your server) | Server key. `wsk_live_…` in Production, `wsk_test_…` only locally. Without it the widget runs unmetered and nothing is counted. |
+| `ORDANA_API_URL` | Only if Ordana's instructions give a different base URL | Entitlement API base. The request shape in `api/ordana-widget/_lib.ts` is provisional until the connect prompt. |
+| `ORDANA_OIDC_ISSUER`, `ORDANA_OIDC_CLIENT_ID`, `ORDANA_OIDC_CLIENT_SECRET` | After the paste | "Continue with Ordana" (OpenID Connect). Redirect URI to register: `https://<production-domain>/ordana-widget/callback` |
+| `ORDANA_WIDGET_SESSION_SECRET` | Before sign-in is switched on | Random string (32+ chars) used to sign widget sessions. |
+
+Redeploy after adding or changing any of them.
+
+## How it works
+
+- `Widget.tsx` renders every screen. It gets a `WidgetBackend`: the embed's talks to `/api/ordana-widget/*`, the preview's is fake.
+- Sign-in: a popup opens `/ordana-widget/signin` (makes a PKCE pair) → `/api/ordana-widget/authorize` → Ordana →
+  `/ordana-widget/callback`, which posts the code to the embed (same origin only). The embed sends it to
+  `/api/ordana-widget/session`, which exchanges it and returns a signed session. Identity is the Ordana subject; there is no user table.
+- Before every rewrite the embed calls `/api/ordana-widget/check` with `consume: 1`; the server asks Ordana's entitlement check.
+  Ordana counts the use, enforces the free rewrites and returns `checkout_url` for the paywall. The rewrite itself is the existing
+  rule-based `rewriteHeadline`, run in the browser.
+- A/B versions: on load the embed calls `check` with `consume: 0` and reads `variant`. Anything other than `"b"` means version a.
+  The version is kept for the session.
+- The theme URL parameters (`theme, accent, accent_text, bg, surface, text, muted, border, radius, font, frame=none, host, fit=fill`)
+  set the `--widget-*` CSS variables in `theme.ts`. The embed posts `{ type: "ordana-widget:resize", height }` to its parent on every size change.
+
+## Versions
+
+| Key | Name | What changes |
+| --- | --- | --- |
+| a | Headline + audience | Headline and optional "Who is it for?" fields both visible; button "Rewrite it" below them. |
+| b | One field | Only the headline field, with "Fix my headline" beside it; the audience field sits behind "+ Add audience". |
+
+Price, free rewrites and the paywall are the same in both.
+
+## What the widget depends on
+
+- **Rewrite logic**: `src/features/rewrite/rewrite.ts` (`rewriteHeadline`, its three styles and labels: Benefit-first, Question, Short & punchy)
+- **Free tier and price wording**: "20 rewrites a month" and "unlimited" in `src/ordana-widget/Widget.tsx` (gate panel, Help), mirroring `src/pages/Pricing.tsx` and `src/features/usage/usage.ts`
+- **Sign-in**: "Continue with Ordana" only (`src/ordana-widget/SignInPages.tsx`, `api/ordana-widget/authorize.ts`, `api/ordana-widget/session.ts`). It does not use the app's Supabase auth.
+- **API routes it calls**: `/api/ordana-widget/check`, `/api/ordana-widget/session`, `/api/ordana-widget/authorize` and Ordana's entitlement check (`api/ordana-widget/_lib.ts`)
+- **Hosting**: `vercel.json` (rewrite + framing header)
+
+## Host test
+
+Run this after every change to the widget, against **production**:
+
+1. Every ⋯ menu item works in the embed (Account, Billing, Settings, Help). The menu ends with "Made on Ordana", and "Ordana" opens https://joinordana.com in a new tab. There is no HeadlineFix name, logo or link on any screen. Check both versions; price, free rewrites and paywall must be the same in each.
+2. Frame the production embed from another origin (a local HTML page served over http) with the resize listener, in a private window, logged out. Repeat with third-party storage blocked: it must not crash.
+3. Test widths 280, 390, 768 and 1200px, and drag between them. There should be no empty block under the widget, no inner scrollbar, no narrow centred column, and nothing cut off.
+4. Test three looks: light in a white card; `theme=dark&frame=none&bg=<card colour>` in a dark card; and dark with `frame=none` in a white card. Everything must stay readable. Then try `accent=9fe3d6` (pale): button text must stay readable.
+5. Run the journey: headline → "Continue with Ordana" (the popup returns, signed in) → results. Use up the free rewrites: the paywall appears inside the widget, and "Upgrade for unlimited" opens Ordana's checkout. Then a second fresh visitor in another browser. Sign out, then sign in again (one tap). Finally, an embed URL with no key should show a clear message.
+6. With the server key set: `whoami` reports livemode, and one real rewrite in the embed shows up in Ordana.

@@ -1,0 +1,450 @@
+/* Ordana widget. Everything below reads these variables; the embed sets them from its URL. */
+.ow-root {
+  --widget-accent: #3654d1;
+  --widget-accent-text: #ffffff;
+  --widget-bg: #ffffff;
+  --widget-surface: #f5f6f8;
+  --widget-text: #16191e;
+  --widget-muted: #59616d;
+  --widget-border: #e1e4e9;
+  --widget-radius: 12px;
+  --widget-font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --widget-space: 4px;
+
+  --ow-r: max(0px, calc(var(--widget-radius) - 4px));
+  --ow-s1: var(--widget-space);
+  --ow-s2: calc(var(--widget-space) * 2);
+  --ow-s3: calc(var(--widget-space) * 3);
+  --ow-s4: calc(var(--widget-space) * 4);
+  --ow-s6: calc(var(--widget-space) * 6);
+  --ow-s8: calc(var(--widget-space) * 8);
+
+  container-type: inline-size;
+  color-scheme: light;
+  min-width: 0;
+  background: var(--widget-bg);
+  color: var(--widget-text);
+  font-family: var(--widget-font);
+  font-size: 15px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.ow-root[data-theme='dark'] {
+  --widget-accent: #8ea2ff;
+  --widget-accent-text: #0d1020;
+  --widget-bg: #14161a;
+  --widget-surface: #1c1f24;
+  --widget-text: #eceef2;
+  --widget-muted: #a3abb6;
+  --widget-border: #2e333b;
+  color-scheme: dark;
+}
+.ow-root *,
+.ow-root *::before,
+.ow-root *::after {
+  box-sizing: border-box;
+}
+.ow-root p,
+.ow-root h2,
+.ow-root ul,
+.ow-root dl,
+.ow-root dd {
+  margin: 0;
+}
+.ow-root[data-framed='true'] {
+  border: 1px solid var(--widget-border);
+  border-radius: var(--widget-radius);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.06);
+}
+
+.ow-inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ow-s4);
+  padding: var(--ow-s4);
+}
+@container (max-width: 419px) {
+  .ow-inner {
+    gap: var(--ow-s3);
+    padding: var(--ow-s3);
+  }
+}
+@container (min-width: 640px) {
+  .ow-inner {
+    padding: var(--ow-s6);
+  }
+  .ow-root[data-mode='page'] .ow-inner {
+    padding: var(--ow-s8);
+  }
+}
+.ow-content {
+  width: 100%;
+  max-width: 640px;
+}
+
+/* Type: one title size, one body size, one small size. */
+.ow-title {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.ow-small {
+  font-size: 13px;
+  line-height: 1.45;
+}
+.ow-strong {
+  font-weight: 600;
+}
+.ow-normal {
+  font-weight: 400;
+}
+.ow-muted {
+  color: var(--widget-muted);
+}
+.ow-error-text {
+  color: var(--widget-text);
+  font-weight: 500;
+}
+.ow-hint-low {
+  color: var(--widget-text);
+  font-weight: 500;
+}
+.ow-mt {
+  margin-top: var(--ow-s1) !important;
+}
+.ow-start {
+  align-self: flex-start;
+}
+.ow-grow {
+  flex: 1;
+  min-width: 0;
+}
+.ow-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ow-s3);
+}
+
+/* Top bar */
+.ow-bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--ow-s2);
+}
+.ow-bar-text {
+  min-width: 0;
+}
+.ow-icon-btn {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin: calc(var(--ow-s1) * -1) calc(var(--ow-s1) * -1) 0 0;
+  border: 1px solid transparent;
+  border-radius: var(--ow-r);
+  background: transparent;
+  color: var(--widget-text);
+  cursor: pointer;
+}
+.ow-icon-btn:hover {
+  background: var(--widget-surface);
+}
+
+/* Form */
+.ow-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ow-s3);
+}
+.ow-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ow-s3);
+}
+.ow-field label {
+  display: block;
+  margin-bottom: var(--ow-s1);
+  font-size: 13px;
+  font-weight: 500;
+}
+.ow-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ow-s2);
+}
+.ow-input {
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  padding: 0 var(--ow-s3);
+  border: 1px solid var(--widget-border);
+  border-radius: var(--ow-r);
+  background: var(--widget-bg);
+  color: var(--widget-text);
+  font: inherit;
+}
+.ow-input::placeholder {
+  color: var(--widget-muted);
+}
+.ow-input:focus-visible {
+  border-color: var(--widget-text);
+  outline: 2px solid var(--widget-accent);
+  outline-offset: 1px;
+}
+@container (min-width: 420px) {
+  .ow-row {
+    flex-direction: row;
+  }
+  .ow-row .ow-btn {
+    flex: none;
+  }
+  .ow-submit {
+    align-self: flex-start;
+  }
+}
+@container (max-width: 419px) {
+  .ow-submit {
+    width: 100%;
+  }
+}
+@container (min-width: 640px) {
+  .ow-form[data-variant='a'] .ow-fields {
+    display: grid;
+    grid-template-columns: 3fr 2fr;
+    align-items: end;
+  }
+}
+
+/* Buttons and links */
+.ow-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ow-s2);
+  height: 40px;
+  padding: 0 var(--ow-s4);
+  border: 1px solid var(--widget-border);
+  border-radius: var(--ow-r);
+  background: var(--widget-bg);
+  color: var(--widget-text);
+  font: inherit;
+  font-weight: 600;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+}
+.ow-btn:hover:not(:disabled) {
+  background: var(--widget-surface);
+}
+.ow-btn-primary {
+  border-color: var(--widget-accent);
+  background: var(--widget-accent);
+  color: var(--widget-accent-text);
+}
+.ow-btn-primary:hover:not(:disabled) {
+  background: var(--widget-accent);
+  filter: brightness(0.93);
+}
+.ow-btn-bold {
+  padding: 0 var(--ow-s6);
+  font-weight: 700;
+}
+.ow-btn-sm {
+  flex: none;
+  height: 32px;
+  padding: 0 var(--ow-s3);
+  font-size: 13px;
+}
+.ow-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.ow-root :is(.ow-btn, .ow-icon-btn, .ow-link, .ow-menu-item, a):focus-visible {
+  outline: 2px solid var(--widget-text);
+  outline-offset: 2px;
+}
+.ow-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--widget-text);
+  font: inherit;
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* Results and panels */
+.ow-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ow-s2);
+  padding: 0;
+  list-style: none;
+}
+.ow-result {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--ow-s3);
+  padding: var(--ow-s3) var(--ow-s3) var(--ow-s3) var(--ow-s4);
+  border: 1px solid var(--widget-border);
+  border-radius: var(--ow-r);
+  background: var(--widget-surface);
+}
+.ow-result-locked {
+  background: var(--widget-bg);
+}
+.ow-result-label {
+  color: var(--widget-muted);
+  font-size: 13px;
+}
+.ow-result-text {
+  margin-top: 2px !important;
+  font-weight: 500;
+}
+.ow-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ow-s3);
+  padding: var(--ow-s4);
+  border: 1px solid var(--widget-border);
+  border-radius: var(--ow-r);
+  background: var(--widget-surface);
+}
+.ow-panel > div > p + p {
+  margin-top: var(--ow-s1);
+}
+.ow-panel .ow-btn {
+  align-self: flex-start;
+}
+@container (max-width: 419px) {
+  .ow-panel {
+    padding: var(--ow-s3);
+  }
+  .ow-panel .ow-btn {
+    align-self: stretch;
+  }
+}
+.ow-panel-tight {
+  gap: var(--ow-s1);
+  padding: var(--ow-s3) var(--ow-s4);
+}
+.ow-panel-error {
+  border-left: 3px solid var(--widget-text);
+}
+
+/* Skeletons */
+.ow-skel {
+  height: 10px;
+  margin-top: var(--ow-s2);
+  border-radius: 5px;
+  background: linear-gradient(90deg, var(--widget-border) 25%, var(--widget-surface) 50%, var(--widget-border) 75%);
+  background-size: 200% 100%;
+  animation: ow-shimmer 1.2s linear infinite;
+}
+.ow-skel:first-child {
+  margin-top: 0;
+}
+.ow-skel-lg {
+  height: 14px;
+}
+.ow-skel-static {
+  height: 14px;
+  margin-top: var(--ow-s2);
+  background: var(--widget-border);
+  animation: none;
+}
+@keyframes ow-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ow-skel {
+    animation: none;
+    background: var(--widget-border);
+  }
+}
+
+/* Menu */
+.ow-menu {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  list-style: none;
+}
+.ow-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: calc(100% + var(--ow-s4));
+  height: 44px;
+  margin: 0 calc(var(--ow-s2) * -1);
+  padding: 0 var(--ow-s2);
+  border: 0;
+  border-radius: var(--ow-r);
+  background: none;
+  color: var(--widget-text);
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+.ow-menu-item:hover {
+  background: var(--widget-surface);
+}
+.ow-made {
+  margin-top: var(--ow-s2) !important;
+  padding-top: var(--ow-s3);
+  border-top: 1px solid var(--widget-border);
+  color: var(--widget-muted);
+  font-size: 13px;
+}
+.ow-made a {
+  color: inherit;
+  font-weight: inherit;
+  text-decoration: none;
+}
+.ow-faq {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ow-s3);
+}
+.ow-faq dd {
+  margin-top: 2px;
+}
+
+/* Embed document: the iframe page itself. */
+html.ow-embed-doc,
+html.ow-embed-doc body {
+  margin: 0;
+  background: transparent;
+}
+.ow-shell[data-framed='true'] {
+  padding-bottom: 2px;
+}
+html.ow-fill,
+html.ow-fill body,
+html.ow-fill #root,
+html.ow-fill .ow-shell {
+  height: 100%;
+  padding: 0;
+}
+.ow-root[data-fill='true'] {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.ow-root[data-fill='true'] .ow-inner {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}

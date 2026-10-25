@@ -30,4 +30,9 @@ Vite, React 19, TypeScript, Tailwind v4 (`@tailwindcss/vite`), React Router, `@s
 ## Rules
 
 - Rewrites stay rule-based, no AI or network calls.
-- Out of scope for now: widget/embed/iframe/partner API code, real payments.
+- No payment code in the app itself. The Ordana widget's paid tier runs entirely on Ordana's checkout.
+- Widget/embed code lives only in `src/ordana-widget/` and `api/ordana-widget/` (see `ORDANA_WIDGET.md`). No other partner API.
+
+## Ordana widget
+
+This product has an Ordana widget (HeadlineFix's widget on Ordana — manage it at https://platform.joinordana.com/scenario/ab5b4b1f-61d9-4db7-bb2a-ba41ae19bc5d?tab=widget — details in ORDANA_WIDGET.md). Before you finish ANY change, check it against ORDANA_WIDGET.md → What the widget depends on. If the change touches any of it — a feature the widget shows, its screens or components, pricing, plans or the free tier, sign-in, or an API the widget calls — tell the founder in one line what it affects and ask: 'Update the widget too?'. If a feature the widget uses is removed or renamed, propose how the widget should change. Price, free-use and host-share changes are never made in code alone: the founder re-confirms them in Ordana (Your widget → Change offer), and hosts already using the widget get 30 days' notice. After updating the widget, re-run the Host test in ORDANA_WIDGET.md, update ORDANA_WIDGET.md and give the founder a fresh code block to paste in Ordana (Your widget → Edit widget) — and say it goes into Ordana, not into a coding agent.
