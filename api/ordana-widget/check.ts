@@ -25,7 +25,8 @@ export async function POST(request: Request): Promise<Response> {
     return json(await checkEntitlement(key, endUserRef, consume))
   } catch (e) {
     // Fail closed: no rewrite without an answer from Ordana.
-    console.error('ordana-widget check', e instanceof Error ? e.message : e)
-    return json({ error: 'Couldn’t check your free rewrites. Please try again.' }, 502)
+    const detail = e instanceof Error ? e.message : String(e)
+    console.error('ordana-widget check', detail)
+    return json({ error: 'Couldn’t check your free rewrites. Please try again.', detail }, 502)
   }
 }
