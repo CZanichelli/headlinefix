@@ -243,7 +243,7 @@ export type Oidc = { issuer: string; clientId: string; clientSecret: string | un
 
 export function oidcConfig(): Oidc | null {
   const issuer = env('ORDANA_OIDC_ISSUER') ?? 'https://acwpajdwtaltiwnecszq.supabase.co/functions/v1/ordana-id'
-  const clientId = env('ORDANA_OIDC_CLIENT_ID') ?? 'efea0e7b-7438-4acf-85b9-2374743d271f'
+  const clientId = env('ORDANA_OIDC_CLIENT_ID') ?? '2c07edd1-0e6f-4efd-8edf-728709dc19b0'
   // Ordana uses the widget's server key as the client secret (token endpoint only).
   const clientSecret = env('ORDANA_OIDC_CLIENT_SECRET') ?? env('ORDANA_WIDGET_KEY')
   if (!clientSecret) return null

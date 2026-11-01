@@ -32,7 +32,7 @@ Manage it at https://platform.joinordana.com/scenario/ab5b4b1f-61d9-4db7-bb2a-ba
 | --- | --- | --- |
 | `ORDANA_WIDGET_KEY` | Required (Your widget → Connect your server) | Server key, only for calling Ordana. `wsk_live_…` in Production, `wsk_test_…` only locally. Also sent as the OIDC client secret unless `ORDANA_OIDC_CLIENT_SECRET` is set. Without it the widget runs unmetered and nothing is counted. |
 | `ORDANA_WIDGET_SESSION_SECRET` | Required for sign-in | Random secret that signs widget sessions (`openssl rand -base64 32`). Independent of `ORDANA_WIDGET_KEY`, so rotating the Ordana key (create new → deploy → revoke old) signs nobody out. Changing this one does sign everyone out. |
-| `ORDANA_OIDC_CLIENT_ID` | From Ordana (Connect your server) | "Continue with Ordana" client id. Redirect URI: `https://headlinefix.vercel.app/ordana-widget/callback` |
+| `ORDANA_OIDC_CLIENT_ID` | Optional override | "Continue with Ordana" client id; defaults to this widget's public id (`2c07edd1-…`, from Connect your server). Redirect URI: `https://headlinefix.vercel.app/ordana-widget/callback` |
 | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` | Already set for the app | Also used server-side by the sign-in relay (`SUPABASE_URL` / `SUPABASE_ANON_KEY` override them). |
 | `ORDANA_API_URL`, `ORDANA_OIDC_ISSUER`, `ORDANA_OIDC_CLIENT_SECRET` | Optional overrides | Default to Ordana's entitlement endpoint, Ordana's issuer, and `ORDANA_WIDGET_KEY`. |
 
