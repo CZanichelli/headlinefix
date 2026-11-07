@@ -16,7 +16,7 @@ const FAILED = 'Sign-in didn’t finish. Please try again.'
 type Outcome = { token: string; user: { id: string; name: string | null; email: string | null } } | { error: string }
 
 async function finishSignIn(request: Request, code: string, verifier: string, nonce: string): Promise<Outcome> {
-  const cfg = oidcConfig()
+  const cfg = await oidcConfig()
   if (!cfg) return { error: 'not_configured' }
   const d = await discover(cfg.issuer)
   const form = new URLSearchParams({

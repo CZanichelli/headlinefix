@@ -14,14 +14,15 @@ export async function POST(request: Request): Promise<Response> {
   const visitor = typeof body?.visitor === 'string' && VISITOR.test(body.visitor) ? body.visitor : null
   if (!HOST_KEY.test(key)) return json({ error: 'This widget is missing its key.' }, 400)
 
-  const session = await readSession(request)
-  if (session === null) return json({ error: 'signed_out' }, 401)
-
-  // end_user_ref: the Ordana "sub" (oid_…) when signed in, else "anon_" + this visitor's random id. Nothing else.
-  const endUserRef = session ? session.sub : visitor ? `anon_${visitor}` : null
-  if (!endUserRef) return json({ error: 'Missing visitor.' }, 400)
-
   try {
+    // Throws (→ 502, not signed_out) when the session secret can't be fetched from Ordana.
+    const session = await readSession(request)
+    if (session === null) return json({ error: 'signed_out' }, 401)
+
+    // end_user_ref: the Ordana "sub" (oid_…) when signed in, else "anon_" + this visitor's random id. Nothing else.
+    const endUserRef = session ? session.sub : visitor ? `anon_${visitor}` : null
+    if (!endUserRef) return json({ error: 'Missing visitor.' }, 400)
+
     return json(await checkEntitlement(key, endUserRef, consume))
   } catch (e) {
     // Fail closed: no rewrite without an answer from Ordana.

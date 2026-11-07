@@ -154,18 +154,43 @@ export type Session = { sub: string; name: string | null; email: string | null; 
 
 const SESSION_DAYS = 30
 
-// Signed with ORDANA_WIDGET_SESSION_SECRET only. Never derived from ORDANA_WIDGET_KEY, so rotating
-// the Ordana key never signs anyone out.
-function hmacKey(): Promise<CryptoKey> | null {
-  const secret = env('ORDANA_WIDGET_SESSION_SECRET')
-  if (!secret) return null
-  return crypto.subtle.importKey('raw', enc.encode(`ordana-widget-session:${secret}`), { name: 'HMAC', hash: 'SHA-256' }, false, [
+// ---------- Widget config from Ordana's whoami ----------
+// The only Vercel variable is ORDANA_WIDGET_KEY. whoami supplies the OIDC client id and issuer and the
+// session secret. Fetched when the instance starts and refreshed every 10 minutes; a failure isn't cached.
+export type WidgetConfig = { clientId: string; issuer: string; sessionSecret: string }
+
+let config: { at: number; value: Promise<WidgetConfig> } | null = null
+
+export function widgetConfig(): Promise<WidgetConfig> {
+  if (config && Date.now() - config.at < 600_000) return config.value
+  const value = whoami().then((d) => {
+    const o = (d.oidc ?? {}) as Record<string, unknown>
+    const clientId = str(o.client_id)
+    const issuer = httpsUrl(o.issuer)
+    const sessionSecret = str(d.session_secret)
+    if (!clientId || !issuer || !sessionSecret) throw new Error('whoami is missing oidc.client_id, oidc.issuer or session_secret')
+    return { clientId, issuer: issuer.replace(/\/+$/, ''), sessionSecret }
+  })
+  const entry = { at: Date.now(), value }
+  config = entry
+  value.catch((e) => {
+    if (config === entry) config = null
+    console.error('ordana-widget config', e instanceof Error ? e.message : e)
+  })
+  return value
+}
+
+if (ordanaConnected()) widgetConfig().catch(() => {})
+
+// Signed with whoami's session_secret. Never derived from ORDANA_WIDGET_KEY, so rotating the Ordana key
+// never signs anyone out. Throws when the secret can't be fetched, so callers fail without signing anyone out.
+async function hmacKey(): Promise<CryptoKey> {
+  const { sessionSecret } = await widgetConfig()
+  return crypto.subtle.importKey('raw', enc.encode(`ordana-widget-session:${sessionSecret}`), { name: 'HMAC', hash: 'SHA-256' }, false, [
     'sign',
     'verify',
   ])
 }
-
-export const sessionConfigured = () => Boolean(env('ORDANA_WIDGET_SESSION_SECRET'))
 
 // ---------- Sign-in relay ----------
 // The popup's callback hands the code to our server, which finishes the sign-in and parks the session
@@ -215,19 +240,18 @@ export async function takeSignIn(state: string): Promise<Parked | null> {
 
 export async function signSession(s: Omit<Session, 'exp'>): Promise<string> {
   const key = await hmacKey()
-  if (!key) throw new Error('No session secret')
   const payload = b64url(enc.encode(JSON.stringify({ ...s, exp: Math.floor(Date.now() / 1000) + SESSION_DAYS * 86400 })))
   const sig = new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode(payload)))
   return `${payload}.${b64url(sig)}`
 }
 
-/** undefined = no token sent; null = token sent but invalid or expired. */
+/** undefined = no token sent; null = token sent but invalid or expired. Throws if the secret is unavailable. */
 export async function readSession(request: Request): Promise<Session | null | undefined> {
   const auth = request.headers.get('authorization')
   if (!auth?.startsWith('Bearer ')) return undefined
   const [payload, sig] = auth.slice(7).split('.')
+  if (!payload || !sig) return null
   const key = await hmacKey()
-  if (!key || !payload || !sig) return null
   try {
     const ok = await crypto.subtle.verify('HMAC', key, fromB64url(sig), enc.encode(payload))
     if (!ok) return null
@@ -241,13 +265,17 @@ export async function readSession(request: Request): Promise<Session | null | un
 // ---------- "Continue with Ordana" (OpenID Connect, code + PKCE S256) ----------
 export type Oidc = { issuer: string; clientId: string; clientSecret: string | undefined }
 
-export function oidcConfig(): Oidc | null {
-  const issuer = env('ORDANA_OIDC_ISSUER') ?? 'https://acwpajdwtaltiwnecszq.supabase.co/functions/v1/ordana-id'
-  const clientId = env('ORDANA_OIDC_CLIENT_ID') ?? '2c07edd1-0e6f-4efd-8edf-728709dc19b0'
+/** Client id and issuer come from Ordana's whoami. null when the server key is missing or whoami doesn't answer. */
+export async function oidcConfig(): Promise<Oidc | null> {
   // Ordana uses the widget's server key as the client secret (token endpoint only).
   const clientSecret = env('ORDANA_OIDC_CLIENT_SECRET') ?? env('ORDANA_WIDGET_KEY')
   if (!clientSecret) return null
-  return { issuer: issuer.replace(/\/+$/, ''), clientId, clientSecret }
+  try {
+    const { clientId, issuer } = await widgetConfig()
+    return { issuer, clientId, clientSecret }
+  } catch {
+    return null
+  }
 }
 
 type Discovery = { issuer: string; authorization_endpoint: string; token_endpoint: string; jwks_uri: string }

@@ -30,13 +30,20 @@ Manage it at https://platform.joinordana.com/scenario/ab5b4b1f-61d9-4db7-bb2a-ba
 
 | Name | Set when | What |
 | --- | --- | --- |
-| `ORDANA_WIDGET_KEY` | Required (Your widget → Connect your server) | Server key, only for calling Ordana. `wsk_live_…` in Production, `wsk_test_…` only locally. Also sent as the OIDC client secret unless `ORDANA_OIDC_CLIENT_SECRET` is set. Without it the widget runs unmetered and nothing is counted. |
-| `ORDANA_WIDGET_SESSION_SECRET` | Required for sign-in | Random secret that signs widget sessions (`openssl rand -base64 32`). Independent of `ORDANA_WIDGET_KEY`, so rotating the Ordana key (create new → deploy → revoke old) signs nobody out. Changing this one does sign everyone out. |
-| `ORDANA_OIDC_CLIENT_ID` | Optional override | "Continue with Ordana" client id; defaults to this widget's public id (`2c07edd1-…`, from Connect your server). Redirect URI: `https://headlinefix.vercel.app/ordana-widget/callback` |
+| `ORDANA_WIDGET_KEY` | Required (Your widget → Connect your server) | Server key, the only Ordana variable. `wsk_live_…` in Production, `wsk_test_…` only locally. Also sent as the OIDC client secret unless `ORDANA_OIDC_CLIENT_SECRET` is set. Without it the widget runs unmetered, nothing is counted and sign-in is off. |
 | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` | Already set for the app | Also used server-side by the sign-in relay (`SUPABASE_URL` / `SUPABASE_ANON_KEY` override them). |
-| `ORDANA_API_URL`, `ORDANA_OIDC_ISSUER`, `ORDANA_OIDC_CLIENT_SECRET` | Optional overrides | Default to Ordana's entitlement endpoint, Ordana's issuer, and `ORDANA_WIDGET_KEY`. |
+| `ORDANA_API_URL`, `ORDANA_OIDC_CLIENT_SECRET` | Optional overrides | Default to Ordana's entitlement endpoint and `ORDANA_WIDGET_KEY`. |
 
-Redeploy after adding or changing any of them.
+Redeploy after adding or changing any of them. `ORDANA_WIDGET_SESSION_SECRET` and `ORDANA_OIDC_CLIENT_ID` are no longer read
+and can be deleted from Vercel.
+
+**From Ordana's whoami** (fetched with the server key when an instance starts, cached 10 minutes, a failed fetch is retried
+on the next request):
+
+- `oidc.client_id`, `oidc.issuer`: "Continue with Ordana". Redirect URI: `https://headlinefix.vercel.app/ordana-widget/callback`
+- `session_secret`: signs the widget's own sessions. Not derived from `ORDANA_WIDGET_KEY`, so rotating the key (create new →
+  deploy → revoke old) signs nobody out. If Ordana changes `session_secret`, everyone is signed out within 10 minutes.
+  While whoami can't be reached, sign-in shows "not available" and signed-in checks fail with a retryable error (nobody is signed out).
 
 ## How it works
 
@@ -56,7 +63,8 @@ Redeploy after adding or changing any of them.
   read once). The embed polls `GET /api/ordana-widget/session?state=…` every 2s for up to 5 minutes (and on focus/visibility);
   the popup's postMessage only makes it ask at once. The widget updates in place, no reload. No user table: identity is `sub`.
   In white-label mode the email may be a `@hidden.id.joinordana.com` stand-in: it is never shown and never mailed.
-- `/api/ordana-widget/whoami` reports only `livemode`, `billing_live`, the widget name and the number of hosts.
+- `/api/ordana-widget/whoami` reports only `livemode`, `billing_live`, the widget name, the number of hosts and the public
+  `oidc.client_id` / `oidc.issuer`, and `session_secret: true/false` (whether Ordana sent one, never its value).
 - **Theme** URL parameters (`theme, accent, accent_text, bg, surface, text, muted, border, radius, font, frame=none, host, fit=fill`)
   set the `--widget-*` CSS variables in `theme.ts`. The embed posts `{ type: "ordana-widget:resize", height }` on every size change.
 

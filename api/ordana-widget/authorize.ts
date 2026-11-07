@@ -1,4 +1,4 @@
-import { callbackUrl, discover, HOST_KEY, oidcConfig, sessionConfigured } from './_lib.js'
+import { callbackUrl, discover, HOST_KEY, oidcConfig } from './_lib.js'
 
 const TOKEN = /^[A-Za-z0-9_-]{16,128}$/
 
@@ -15,8 +15,9 @@ export async function GET(request: Request): Promise<Response> {
   if (!TOKEN.test(state) || !TOKEN.test(nonce) || !TOKEN.test(challenge) || !HOST_KEY.test(host)) {
     return fail('invalid_request')
   }
-  const cfg = oidcConfig()
-  if (!cfg || !sessionConfigured()) return fail('not_configured')
+  const cfg = await oidcConfig()
+  // Same whoami answer carries the session secret, so a config here means sessions can be signed too.
+  if (!cfg) return fail('not_configured')
 
   try {
     const d = await discover(cfg.issuer)
