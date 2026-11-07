@@ -52,8 +52,9 @@ export const NO_BRIDGE: HostBridge = { context: null, canSend: false, send: () =
 /** Load-check reasons that mean the widget is switched off on this host. */
 export const GONE_REASONS = new Set(['attachment_removed', 'host_disabled', 'widget_retired'])
 
+/** `disconnected`: the person disconnected this widget in their Ordana account (consent_withdrawn / unknown_ordana_id). */
 export class SignedOutError extends Error {
-  constructor() {
+  constructor(readonly disconnected = false) {
     super('Please sign in again.')
   }
 }

@@ -1,6 +1,7 @@
 import { checkEntitlement, HOST_KEY, json, readJson, readSession } from './_lib.js'
 
 const VISITOR = /^[A-Za-z0-9-]{8,64}$/
+const DISCONNECTED = new Set(['consent_withdrawn', 'unknown_ordana_id'])
 
 /**
  * POST /api/ordana-widget/check { key, consume: 0|1, visitor }
@@ -23,7 +24,11 @@ export async function POST(request: Request): Promise<Response> {
     const endUserRef = session ? session.sub : visitor ? `anon_${visitor}` : null
     if (!endUserRef) return json({ error: 'Missing visitor.' }, 400)
 
-    return json(await checkEntitlement(key, endUserRef, consume))
+    const r = await checkEntitlement(key, endUserRef, consume)
+    // They disconnected this widget in their Ordana account: end our session (the embed drops its token on 401)
+    // so the widget offers "Continue with Ordana" again.
+    if (session && r.reason && DISCONNECTED.has(r.reason)) return json({ error: 'disconnected' }, 401)
+    return json(r)
   } catch (e) {
     // Fail closed: no rewrite without an answer from Ordana.
     const detail = e instanceof Error ? e.message : String(e)

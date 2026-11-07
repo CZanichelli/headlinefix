@@ -58,12 +58,12 @@ async function check(hostKey: string, consume: 0 | 1): Promise<CheckResponse> {
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: JSON.stringify({ key: hostKey, consume, visitor: visitorId() }),
   })
+  const data = await res.json().catch(() => null)
   if (res.status === 401) {
     local.remove(TOKEN_KEY)
     local.remove(USER_KEY)
-    throw new SignedOutError()
+    throw new SignedOutError(data?.error === 'disconnected')
   }
-  const data = await res.json().catch(() => null)
   if (!res.ok || !data) throw new Error(data?.error ?? 'Couldn’t reach the server. Please try again.')
   return data as CheckResponse
 }

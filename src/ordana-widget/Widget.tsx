@@ -139,6 +139,8 @@ export default function Widget({ backend, variant, mode, look, bridge = NO_BRIDG
   const [signingIn, setSigningIn] = useState(false)
   const [signInError, setSignInError] = useState<string | null>(null)
   const [awaitingPayment, setAwaitingPayment] = useState(false)
+  // Signed out because they disconnected the widget in Ordana: the sign-in step says so instead of "free tries used".
+  const [reconnect, setReconnect] = useState(false)
   const [consent, setConsent] = useState<Consent>(() => readConsent(user))
   // Which fields hold a value the host sent (shown with "From <host>"), and whether the user said "Don't use".
   const [prefilled, setPrefilled] = useState({ headline: false, audience: false })
@@ -204,13 +206,20 @@ export default function Widget({ backend, variant, mode, look, bridge = NO_BRIDG
       }
     } catch (e) {
       if (e instanceof SignedOutError) {
-        setUser(null)
-        setPhase('idle')
+        signedOut(e)
+        setPhase(e.disconnected ? 'gate' : 'idle')
         return
       }
       setError(message(e))
       setPhase('error')
     }
+  }
+
+  /** Our session is already dropped (the backend did it); update what the widget shows. */
+  function signedOut(e: SignedOutError) {
+    setUser(null)
+    setRemaining(null)
+    setReconnect(e.disconnected)
   }
 
   function signIn(then?: () => void | Promise<void>) {
@@ -223,6 +232,7 @@ export default function Widget({ backend, variant, mode, look, bridge = NO_BRIDG
       .signIn(abort.signal)
       .then(async (u) => {
         setUser(u)
+        setReconnect(false)
         await then?.()
       })
       .catch((e) => {
@@ -402,10 +412,17 @@ export default function Widget({ backend, variant, mode, look, bridge = NO_BRIDG
               <section className="ow-panel" aria-live="polite">
                 <div>
                   <p className="ow-strong">Your 3 rewrites are ready</p>
-                  <p className="ow-small ow-muted">
-                    You&apos;ve used your {FREE_TRIES} free tries. Continue with Ordana to see these and get{' '}
-                    {FREE_WITH_ACCOUNT} more free rewrites. One account works in every Ordana widget.
-                  </p>
+                  {reconnect ? (
+                    <p className="ow-small ow-muted">
+                      This widget was disconnected from your Ordana account, so you&apos;re signed out here. Continue
+                      with Ordana to see these and keep going.
+                    </p>
+                  ) : (
+                    <p className="ow-small ow-muted">
+                      You&apos;ve used your {FREE_TRIES} free tries. Continue with Ordana to see these and get{' '}
+                      {FREE_WITH_ACCOUNT} more free rewrites. One account works in every Ordana widget.
+                    </p>
+                  )}
                 </div>
                 <ul className="ow-results" aria-hidden="true">
                   {['Benefit-first', 'Question', 'Short & punchy'].map((label) => (
@@ -534,6 +551,7 @@ export default function Widget({ backend, variant, mode, look, bridge = NO_BRIDG
               backend={backend}
               signedIn={Boolean(user)}
               signInButton={continueButton('Continue with Ordana')}
+              onSignedOut={signedOut}
               onUpgrade={(url) => {
                 backend.openCheckout(url)
                 setAwaitingPayment(true)
@@ -686,13 +704,17 @@ function BillingPanel({
   signedIn,
   signInButton,
   onUpgrade,
+  onSignedOut,
 }: {
   backend: WidgetBackend
   signedIn: boolean
   signInButton: ReactNode
   onUpgrade: (url: string) => void
+  onSignedOut: (e: SignedOutError) => void
 }) {
   const [state, setState] = useState<CheckResult | 'loading' | 'error'>('loading')
+  const signedOutRef = useRef(onSignedOut)
+  signedOutRef.current = onSignedOut
   useEffect(() => {
     if (!signedIn) return
     let live = true
@@ -700,7 +722,12 @@ function BillingPanel({
     backend
       .status()
       .then((r) => live && setState(r))
-      .catch(() => live && setState('error'))
+      .catch((e) => {
+        if (!live) return
+        // Session gone (e.g. disconnected in Ordana): the parent flips to signed out and this shows "Continue with Ordana".
+        if (e instanceof SignedOutError) signedOutRef.current(e)
+        else setState('error')
+      })
     return () => {
       live = false
     }

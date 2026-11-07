@@ -56,6 +56,10 @@ on the next request):
   Ordana enforces the free tries: `sign_in_required` → the sign-in step ("Continue with Ordana", or "Continue with Ordana to
   buy" when it is also a paywall); `paywall` + `checkout_url` → "Upgrade for unlimited" opens exactly that URL in a new tab.
   Network errors, 5xx and 429 are retried with backoff, then the request fails closed.
+- **Disconnected in Ordana**: when a signed-in check answers reason `consent_withdrawn` or `unknown_ordana_id`, the person
+  disconnected the widget in their Ordana account. `check` answers `401 { error: "disconnected" }`, the embed drops its session
+  at once and shows the sign-in step ("Continue with Ordana", saying the widget was disconnected), never "Not available right
+  now". Plan & billing does the same. Sessions are stateless, so dropping the embed's token ends it; Ordana refuses the old `sub` anyway.
 - **Sign-in** ("Continue with Ordana" only): the embed picks a random `state` and opens a popup at
   `/ordana-widget/signin?host=wak_…&state=…` (makes PKCE + nonce) → `/api/ordana-widget/authorize` → Ordana → `/ordana-widget/callback`.
   The callback POSTs the code to `/api/ordana-widget/session`, which exchanges it, verifies the ID token (ES256 via JWKS,
@@ -116,5 +120,5 @@ Run this after every change to the widget, against **production**:
 3. **Widths.** Test 280, 390, 768 and 1200px, and drag between them. There should be no empty block under the widget, no inner scrollbar, no narrow centred column, and nothing cut off. The ⋯ menu must fit.
 4. **Looks.** Test light in a white card; `theme=dark&frame=none&bg=<card colour>` in a dark card; and dark with `frame=none` in a white card. Everything must stay readable. Then try `accent=9fe3d6` (pale): button text must stay readable.
 5. **Shared context.** Send `{type:"ordana-widget:context",v:1,fields:{draft_title,audience,author_email}}`. The two declared fields prefill with "From <host>", `author_email` is ignored, and nothing runs until you click. "Don't use" clears them. After Yes to "Keep <host> updated", "Use this" delivers `ordana-widget:result` with only `chosen_headline` and `chosen_style`.
-6. **Journey.** Use 3 rewrites without an account. The 4th shows the sign-in step; "Continue with Ordana" (once with Google, once with an email code) closes the popup and shows the results without a reload. Use up the 20, and the paywall appears inside the widget: signed out it says "Continue with Ordana to buy", signed in "Upgrade for unlimited" opens Ordana's checkout. Then try a second fresh visitor in another browser. Sign out, then sign in again (one tap). Finally, an embed URL with no key should show a clear message.
+6. **Journey.** Use 3 rewrites without an account. The 4th shows the sign-in step; "Continue with Ordana" (once with Google, once with an email code) closes the popup and shows the results without a reload. Use up the 20, and the paywall appears inside the widget: signed out it says "Continue with Ordana to buy", signed in "Upgrade for unlimited" opens Ordana's checkout. Then try a second fresh visitor in another browser. Sign out, then sign in again (one tap). While signed in, disconnect the widget in your Ordana account: the next rewrite signs you out and shows "Continue with Ordana" (not "Not available right now"), and continuing signs you back in. Finally, an embed URL with no key should show a clear message.
 7. **Live key.** With the server key set, `/api/ordana-widget/whoami` answers `livemode: true`, and one real rewrite in the embed shows up in Ordana.
