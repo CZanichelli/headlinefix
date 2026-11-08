@@ -25,6 +25,7 @@ type CheckResponse = {
   remaining: number | null
   plan: string | null
   variant: string | null
+  variant_round?: string | number | null
 }
 
 /** The random id behind "anon_…" before sign-in. Kept in storage, or for this page load when storage is blocked. */
@@ -68,33 +69,50 @@ async function check(hostKey: string, consume: 0 | 1): Promise<CheckResponse> {
   return data as CheckResponse
 }
 
-export type LoadAnswer = { variant: Variant; gone: boolean }
+export type LoadAnswer = { variant: Variant; round: string | number | null; gone: boolean }
+
+/** The end_user_ref the server will use: the Ordana sub once signed in, else anon_<visitor id>. */
+function userRef(): string {
+  if (local.get(TOKEN_KEY)) {
+    try {
+      const u = JSON.parse(local.get(USER_KEY) ?? 'null') as WidgetUser | null
+      if (u && typeof u.id === 'string') return u.id
+    } catch {
+      /* fall through */
+    }
+  }
+  return `anon_${visitorId()}`
+}
 
 /**
- * The one check on load (consume: 0, nothing spent): counts the impression, says which version (A/B)
- * Ordana assigned, and whether the widget is switched off on this host. Kept for the session.
+ * The one check on load (consume: 0, nothing spent) for the current user ref: counts the impression, says
+ * which version (A/B) Ordana assigned and its variant_round, and whether the widget is switched off on this
+ * host. Kept for the session per user ref, so it's asked again after sign-in (or sign-out). Only a real
+ * answer is kept; a failed or slow check shows version a now and is asked again on the next load.
  */
 export async function loadCheck(hostKey: string): Promise<LoadAnswer> {
+  const keptKey = `${LOAD_KEY}:${userRef()}`
   try {
-    const kept = JSON.parse(session.get(LOAD_KEY) ?? 'null') as LoadAnswer | null
+    const kept = JSON.parse(session.get(keptKey) ?? 'null') as LoadAnswer | null
     if (kept && (kept.variant === 'a' || kept.variant === 'b')) return kept
   } catch {
     /* ask again */
   }
-  let answer: LoadAnswer = { variant: 'a', gone: false }
   try {
     const r = await Promise.race([check(hostKey, 0), new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000))])
-    if (r) {
-      answer = {
-        variant: r.variant === 'b' ? 'b' : 'a',
-        gone: !r.entitled && r.reason !== null && GONE_REASONS.has(r.reason),
-      }
+    if (!r) return { variant: 'a', round: null, gone: false }
+    const answer: LoadAnswer = {
+      // Only a version the reply named; anything else is the control.
+      variant: r.variant === 'b' ? 'b' : 'a',
+      round: r.variant_round ?? null,
+      gone: !r.entitled && r.reason !== null && GONE_REASONS.has(r.reason),
     }
+    session.set(keptKey, JSON.stringify(answer))
+    return answer
   } catch {
-    /* fall back to version a; a failed check never hides the widget */
+    // A failed check never hides the widget.
+    return { variant: 'a', round: null, gone: false }
   }
-  session.set(LOAD_KEY, JSON.stringify(answer))
-  return answer
 }
 
 function randomState(): string {

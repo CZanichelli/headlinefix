@@ -121,13 +121,28 @@ type Props = {
   look: Look
   bridge?: HostBridge
   initial?: WidgetInitial
+  /** Called after sign-in or sign-out (the user ref changed), e.g. to ask Ordana for this user's version. */
+  onUserChange?: () => void
 }
 
-export default function Widget({ backend, variant, mode, look, bridge = NO_BRIDGE, initial = {} }: Props) {
+export default function Widget({ backend, variant, mode, look, bridge = NO_BRIDGE, initial = {}, onUserChange }: Props) {
   const [user, setUser] = useState<WidgetUser | null>(() => backend.currentUser())
+  const userId = user?.id ?? null
+  const seenUser = useRef(userId)
+  const onUserChangeRef = useRef(onUserChange)
+  onUserChangeRef.current = onUserChange
+  useEffect(() => {
+    if (seenUser.current === userId) return
+    seenUser.current = userId
+    onUserChangeRef.current?.()
+  }, [userId])
   const [headline, setHeadline] = useState(initial.headline ?? '')
   const [audience, setAudience] = useState(() => initial.audience ?? local.get(AUDIENCE_KEY) ?? '')
   const [showAudience, setShowAudience] = useState(variant === 'a' || Boolean(initial.audience))
+  // The version can change after sign-in; version a always shows the audience field.
+  useEffect(() => {
+    if (variant === 'a') setShowAudience(true)
+  }, [variant])
   const [phase, setPhase] = useState<Phase>(initial.phase ?? 'idle')
   const [results, setResults] = useState<Rewrite[]>(() =>
     initial.phase === 'results' ? rewriteHeadline(initial.headline ?? '', initial.audience ?? '') : [],

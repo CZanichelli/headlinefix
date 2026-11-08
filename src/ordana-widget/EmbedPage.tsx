@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Widget, { GoneNotice, WidgetFrame } from './Widget'
 import { createLiveBackend, loadCheck, type LoadAnswer } from './liveBackend'
 import { parseLook, parseMode, useGoogleFont } from './theme'
@@ -76,9 +76,15 @@ export default function EmbedPage() {
     document.title = 'Headline rewriter'
   }, [look.fill])
 
-  useEffect(() => {
-    if (validKey) loadCheck(key).then(setLoad)
+  // The load check for the current user ref. Asked again after sign-in/out; only the latest answer counts,
+  // and the shown version stays until it arrives.
+  const loads = useRef(0)
+  const askLoad = useCallback(() => {
+    if (!validKey) return
+    const n = ++loads.current
+    loadCheck(key).then((answer) => n === loads.current && setLoad(answer))
   }, [validKey, key])
+  useEffect(askLoad, [askLoad])
 
   // Hug the content and tell the host page our height on every change.
   useEffect(() => {
@@ -111,7 +117,14 @@ export default function EmbedPage() {
           <GoneNotice />
         </WidgetFrame>
       ) : load && backend ? (
-        <Widget backend={backend} variant={load.variant} mode={mode} look={look} bridge={bridge} />
+        <Widget
+          backend={backend}
+          variant={load.variant}
+          mode={mode}
+          look={look}
+          bridge={bridge}
+          onUserChange={askLoad}
+        />
       ) : (
         <WidgetFrame look={look} mode={mode}>
           <div className="ow-stack" aria-busy="true" aria-label="Loading">

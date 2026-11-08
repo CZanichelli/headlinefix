@@ -80,6 +80,7 @@ export type Entitlement = {
   remaining: number | null
   plan: string | null
   variant: string | null
+  variant_round: string | number | null
   connected: boolean
 }
 
@@ -108,6 +109,7 @@ export async function checkEntitlement(hostKey: string, endUserRef: string, cons
       remaining: null,
       plan: null,
       variant: null,
+      variant_round: null,
       connected: false,
     }
   }
@@ -129,6 +131,7 @@ export async function checkEntitlement(hostKey: string, endUserRef: string, cons
     remaining,
     plan: str(d.plan),
     variant: str(d.variant),
+    variant_round: str(d.variant_round) ?? num(d.variant_round),
     connected: true,
   }
   const ttl = num(d.cache_ttl_s)
@@ -214,8 +217,36 @@ async function rpc(fn: string, args: Record<string, unknown>): Promise<unknown> 
     },
     body: JSON.stringify(args),
   })
-  if (!res.ok) throw new Error(`Supabase ${fn} failed (${res.status})`)
+  if (!res.ok) throw Object.assign(new Error(`Supabase ${fn} failed (${res.status})`), { status: res.status })
   return res.status === 204 ? null : res.json().catch(() => null)
+}
+
+// ---------- Signed-out use counter ("3 free tries without an account") ----------
+// Kept per anon ref in Supabase (supabase/ordana-widget.sql), not just in the visitor's storage.
+// Mirrors FREE_TRIES in src/ordana-widget/Widget.tsx and the offer in Ordana.
+export const ANON_FREE_TRIES = 3
+
+/**
+ * Takes one signed-out use. Returns the new count, null when all are used, or undefined when the counter
+ * isn't installed yet (SQL not run: 404), so the widget keeps working on Ordana's count alone until it is.
+ */
+export async function takeAnonUse(ref: string): Promise<number | null | undefined> {
+  try {
+    const n = await rpc('ordana_widget_anon_take', { p_ref: ref, p_limit: ANON_FREE_TRIES })
+    return typeof n === 'number' ? n : null
+  } catch (e) {
+    if ((e as { status?: number }).status === 404) {
+      console.warn('ordana-widget: anon use counter not installed; run supabase/ordana-widget.sql')
+      return undefined
+    }
+    throw e
+  }
+}
+
+export async function giveBackAnonUse(ref: string): Promise<void> {
+  await rpc('ordana_widget_anon_give_back', { p_ref: ref }).catch((e) =>
+    console.error('ordana-widget anon give back', e instanceof Error ? e.message : e),
+  )
 }
 
 export type Parked = { token: string; user: Record<string, unknown> } | { error: string }

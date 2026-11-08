@@ -1,12 +1,63 @@
-import { checkEntitlement, HOST_KEY, json, readJson, readSession } from './_lib.js'
+import {
+  ANON_FREE_TRIES,
+  checkEntitlement,
+  giveBackAnonUse,
+  HOST_KEY,
+  json,
+  ordanaConnected,
+  readJson,
+  readSession,
+  takeAnonUse,
+  type Entitlement,
+} from './_lib.js'
 
 const VISITOR = /^[A-Za-z0-9-]{8,64}$/
 const DISCONNECTED = new Set(['consent_withdrawn', 'unknown_ordana_id'])
 
 /**
+ * A signed-out rewrite: our own count of the 3 free tries (per anon ref, server-side) comes first, then
+ * Ordana's consume: 1 check exactly as for everyone else. A try Ordana refuses (or that errors) is given back.
+ */
+async function anonUse(key: string, ref: string): Promise<Entitlement> {
+  const taken = await takeAnonUse(ref)
+  if (taken === null) {
+    // All 3 used: the sign-in step ("Continue with Ordana") instead of a rewrite. Ordana isn't asked, nothing is spent.
+    return {
+      entitled: false,
+      paywall: false,
+      sign_in_required: true,
+      reason: 'anon_free_tries_used',
+      checkout_url: null,
+      credit_pack_url: null,
+      manage_url: null,
+      remaining: 0,
+      plan: null,
+      variant: null,
+      variant_round: null,
+      connected: true,
+    }
+  }
+  let r: Entitlement
+  try {
+    r = await checkEntitlement(key, ref, 1)
+  } catch (e) {
+    if (taken !== undefined) await giveBackAnonUse(ref)
+    throw e
+  }
+  if (taken === undefined) return r // counter not installed yet: Ordana's answer alone
+  if (!r.entitled) {
+    await giveBackAnonUse(ref)
+    return r
+  }
+  const left = ANON_FREE_TRIES - taken
+  return { ...r, remaining: r.remaining === null ? left : Math.min(r.remaining, left) }
+}
+
+/**
  * POST /api/ordana-widget/check { key, consume: 0|1, visitor }
  * Asks Ordana before every use (consume: 1, signed in or not) and on load for the A/B version (consume: 0).
- * Ordana enforces the free tries, asks for sign-in when they run out, and returns the paywall.
+ * Signed out, we count the 3 free tries ourselves (anonUse); Ordana enforces the rest, asks for sign-in and
+ * returns the paywall.
  */
 export async function POST(request: Request): Promise<Response> {
   const body = await readJson(request)
@@ -23,6 +74,8 @@ export async function POST(request: Request): Promise<Response> {
     // end_user_ref: the Ordana "sub" (oid_…) when signed in, else "anon_" + this visitor's random id. Nothing else.
     const endUserRef = session ? session.sub : visitor ? `anon_${visitor}` : null
     if (!endUserRef) return json({ error: 'Missing visitor.' }, 400)
+
+    if (!session && consume === 1 && ordanaConnected()) return json(await anonUse(key, endUserRef))
 
     const r = await checkEntitlement(key, endUserRef, consume)
     // They disconnected this widget in their Ordana account: end our session (the embed drops its token on 401)
