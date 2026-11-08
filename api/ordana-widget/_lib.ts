@@ -227,17 +227,17 @@ async function rpc(fn: string, args: Record<string, unknown>): Promise<unknown> 
 export const ANON_FREE_TRIES = 3
 
 /**
- * Takes one signed-out use. Returns the new count, null when all are used, or undefined when the counter
- * isn't installed yet (SQL not run: 404), so the widget keeps working on Ordana's count alone until it is.
+ * Reads and takes one signed-out use in one step, before Ordana is asked. Returns the new count, or null when
+ * the ref already had ANON_FREE_TRIES. Throws when the counter can't be reached or isn't installed (SQL not
+ * run), so the rewrite fails closed instead of silently running on Ordana's count.
  */
-export async function takeAnonUse(ref: string): Promise<number | null | undefined> {
+export async function takeAnonUse(ref: string): Promise<number | null> {
   try {
     const n = await rpc('ordana_widget_anon_take', { p_ref: ref, p_limit: ANON_FREE_TRIES })
     return typeof n === 'number' ? n : null
   } catch (e) {
     if ((e as { status?: number }).status === 404) {
-      console.warn('ordana-widget: anon use counter not installed; run supabase/ordana-widget.sql')
-      return undefined
+      console.error('ordana-widget: anon use counter not installed; run supabase/ordana-widget.sql')
     }
     throw e
   }

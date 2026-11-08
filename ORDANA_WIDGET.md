@@ -58,9 +58,10 @@ on the next request):
   in, else `anon_<random visitor id>` (in storage, or per page load when storage is blocked). Never an email or our own id.
   **Signed out, the server counts the 3 free tries itself** per anon ref (`ordana_widget_anon_uses` in Supabase,
   `ANON_FREE_TRIES` in `api/ordana-widget/_lib.ts`): it takes one try, then asks Ordana as usual, and gives the try back when
-  Ordana says no or errors. After 3 it answers `sign_in_required` (reason `anon_free_tries_used`) without asking Ordana. Until
-  `supabase/ordana-widget.sql` has been run the counter is skipped (logged) and only Ordana's count applies. A visitor who clears
-  storage gets a new anon ref, as with Ordana's own count. Signed in, Ordana's `remaining` applies unchanged.
+  Ordana says no or errors. After 3 it answers `sign_in_required` (reason `anon_free_tries_used`) without asking Ordana. If the
+  counter can't be reached or `supabase/ordana-widget.sql` hasn't been run, signed-out rewrites fail closed (never silently
+  uncounted). A visitor who clears storage gets a new anon ref, as with Ordana's own count. The hint reads "X of 3 free tries
+  left" while signed out; signed in, Ordana's `remaining` / `free_remaining` applies unchanged.
   Ordana enforces the rest: `sign_in_required` → the sign-in step ("Continue with Ordana", or "Continue with Ordana to
   buy" when it is also a paywall); `paywall` + `checkout_url` → "Upgrade for unlimited" opens exactly that URL in a new tab.
   Network errors, 5xx and 429 are retried with backoff, then the request fails closed.

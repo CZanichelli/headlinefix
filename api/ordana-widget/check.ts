@@ -41,10 +41,9 @@ async function anonUse(key: string, ref: string): Promise<Entitlement> {
   try {
     r = await checkEntitlement(key, ref, 1)
   } catch (e) {
-    if (taken !== undefined) await giveBackAnonUse(ref)
+    await giveBackAnonUse(ref)
     throw e
   }
-  if (taken === undefined) return r // counter not installed yet: Ordana's answer alone
   if (!r.entitled) {
     await giveBackAnonUse(ref)
     return r

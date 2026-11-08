@@ -629,21 +629,18 @@ function UsesHint({
   onUpgrade: () => void
 }) {
   if (remaining === null) return null
-  const low = remaining <= 3
-  const unit = signedIn
-    ? remaining === 1
-      ? 'free rewrite'
-      : 'free rewrites'
-    : remaining === 1
-      ? 'free try'
-      : 'free tries'
+  // Signed out it's the 3 tries the server counts, never a bigger number from Ordana.
+  const left = signedIn ? remaining : Math.min(remaining, FREE_TRIES)
+  const low = left <= 3
   return (
     <p className={`ow-small ${low ? 'ow-hint-low' : 'ow-muted'}`}>
-      {remaining === 0
+      {left === 0
         ? signedIn
           ? 'That was your last free rewrite.'
           : `That was your last free try. Continue with Ordana for ${FREE_WITH_ACCOUNT} more.`
-        : `${remaining} ${unit} left.`}
+        : signedIn
+          ? `${left} ${left === 1 ? 'free rewrite' : 'free rewrites'} left.`
+          : `${left} of ${FREE_TRIES} free tries left.`}
       {low && signedIn && checkoutUrl && (
         <>
           {' '}
