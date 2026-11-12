@@ -4,6 +4,7 @@ import { local } from './storage'
 import type { Look } from './theme'
 import {
   GONE_REASONS,
+  isHostUser,
   NO_BRIDGE,
   SignedOutError,
   type CheckResult,
@@ -123,10 +124,27 @@ type Props = {
   initial?: WidgetInitial
   /** Called after sign-in or sign-out (the user ref changed), e.g. to ask Ordana for this user's version. */
   onUserChange?: () => void
+  /** From the load check: this host signs people in itself, with this label. null = Continue with Ordana. */
+  signin?: { label: string } | null
 }
 
-export default function Widget({ backend, variant, mode, look, bridge = NO_BRIDGE, initial = {}, onUserChange }: Props) {
+export default function Widget({
+  backend,
+  variant,
+  mode,
+  look,
+  bridge = NO_BRIDGE,
+  initial = {},
+  onUserChange,
+  signin = null,
+}: Props) {
   const [user, setUser] = useState<WidgetUser | null>(() => backend.currentUser())
+  // Host sign-in: show the host's signin_label and ask the host page, never "Continue with Ordana".
+  const [hostSignin, setHostSignin] = useState(signin)
+  const signinProp = signin?.label ?? null
+  useEffect(() => setHostSignin(signinProp === null ? null : { label: signinProp }), [signinProp])
+  // What to run once the host has signed someone in (e.g. the rewrite that asked for sign-in).
+  const afterHostSignIn = useRef<(() => void | Promise<void>) | null>(null)
   const userId = user?.id ?? null
   const seenUser = useRef(userId)
   const onUserChangeRef = useRef(onUserChange)
@@ -198,7 +216,32 @@ export default function Widget({ backend, variant, mode, look, bridge = NO_BRIDG
   function applyCheck(r: CheckResult) {
     setRemaining(r.remaining)
     setCheckoutUrl(r.checkoutUrl ?? r.creditPackUrl)
+    if (r.signin === 'host') setHostSignin({ label: r.signinLabel ?? 'Sign in' })
+    else if (r.signin === 'ordana') setHostSignin(null)
   }
+
+  function askHost(then?: () => void | Promise<void>) {
+    afterHostSignIn.current = then ?? null
+    backend.requestHostSignIn?.()
+  }
+
+  // The host signed someone in or out from outside the widget. A different person replaces the first.
+  useEffect(
+    () =>
+      backend.subscribe?.((u) => {
+        setUser(u)
+        setReconnect(false)
+        setSignInError(null)
+        const then = afterHostSignIn.current
+        afterHostSignIn.current = null
+        setRemaining(null)
+        setResults([])
+        setPanel(null)
+        if (u && then) void then()
+        else setPhase('idle')
+      }),
+    [backend],
+  )
 
   async function runUse(signedIn = user !== null) {
     setPhase('checking')
@@ -214,6 +257,8 @@ export default function Widget({ backend, variant, mode, look, bridge = NO_BRIDG
         setPhase('gone')
       } else if (r.signInRequired && !signedIn) {
         setPhase(r.paywall ? 'paywall' : 'gate')
+        // The host signs people in: tell it someone needs to, then run this rewrite once they're in.
+        if (r.signin === 'host' || (r.signin == null && hostSignin)) askHost(() => runUse(true))
       } else if (r.paywall && (r.checkoutUrl || r.creditPackUrl)) {
         setPhase('paywall')
       } else {
@@ -308,7 +353,11 @@ export default function Widget({ backend, variant, mode, look, bridge = NO_BRIDG
 
   // After sign-in, `then` runs with the new user already set, so it must not read `user` from this render.
   const continueButton = (label: string, then?: () => void | Promise<void>) =>
-    signingIn ? (
+    hostSignin ? (
+      <button type="button" className="ow-btn ow-btn-primary" onClick={() => askHost(then)}>
+        {hostSignin.label}
+      </button>
+    ) : signingIn ? (
       <div className="ow-inline">
         <button type="button" className="ow-btn ow-btn-primary" disabled>
           Waiting for sign-in…
@@ -408,9 +457,15 @@ export default function Widget({ backend, variant, mode, look, bridge = NO_BRIDG
             {phase === 'idle' && !user && (
               <p className="ow-small ow-muted">
                 {FREE_TRIES} free tries, no account needed. Already have an account?{' '}
+                {hostSignin ? (
+                  <button type="button" className="ow-link" onClick={() => askHost()}>
+                    {hostSignin.label}
+                  </button>
+                ) : (
                 <button type="button" className="ow-link" onClick={() => signIn()} disabled={signingIn}>
                   {signingIn ? 'Waiting for sign-in…' : 'Sign in'}
                 </button>
+                )}
                 {signingIn && (
                   <>
                     {' '}
@@ -427,7 +482,11 @@ export default function Widget({ backend, variant, mode, look, bridge = NO_BRIDG
               <section className="ow-panel" aria-live="polite">
                 <div>
                   <p className="ow-strong">Your 3 rewrites are ready</p>
-                  {reconnect ? (
+                  {hostSignin ? (
+                    <p className="ow-small ow-muted">
+                      You&apos;ve used your {FREE_TRIES} free tries. Sign in to see these and keep going.
+                    </p>
+                  ) : reconnect ? (
                     <p className="ow-small ow-muted">
                       This widget was disconnected from your Ordana account, so you&apos;re signed out here. Continue
                       with Ordana to see these and keep going.
@@ -511,7 +570,7 @@ export default function Widget({ backend, variant, mode, look, bridge = NO_BRIDG
                   <p className="ow-small ow-muted">
                     {user
                       ? 'Upgrade for unlimited rewrites. Checkout opens in a new tab, and you’ll see the price before you pay. Your headline stays right here.'
-                      : 'Continue with Ordana to upgrade for unlimited rewrites. You’ll see the price before you pay, and your headline stays right here.'}
+                      : `${hostSignin ? 'Sign in' : 'Continue with Ordana'} to upgrade for unlimited rewrites. You’ll see the price before you pay, and your headline stays right here.`}
                   </p>
                 </div>
                 {user ? (
@@ -551,6 +610,7 @@ export default function Widget({ backend, variant, mode, look, bridge = NO_BRIDG
       ) : panel === 'menu' ? (
         <Menu
           user={user}
+          hostName={hostName}
           signInButton={continueButton('Continue with Ordana')}
           signInError={signInError}
           onPick={setPanel}
@@ -659,8 +719,10 @@ function Menu({
   signInError,
   onPick,
   onSignOut,
+  hostName,
 }: {
   user: WidgetUser | null
+  hostName: string
   signInButton: ReactNode
   signInError: string | null
   onPick: (p: Panel) => void
@@ -677,9 +739,13 @@ function Menu({
         {user ? (
           <>
             <p className="ow-strong">{user.name ?? 'Signed in'}</p>
-            <a className="ow-small ow-muted ow-plain-link" href={ORDANA_ACCOUNT} target="_blank" rel="noopener">
-              Signed in with Ordana ↗
-            </a>
+            {isHostUser(user) ? (
+              <p className="ow-small ow-muted">Signed in through {hostName}</p>
+            ) : (
+              <a className="ow-small ow-muted ow-plain-link" href={ORDANA_ACCOUNT} target="_blank" rel="noopener">
+                Signed in with Ordana ↗
+              </a>
+            )}
           </>
         ) : (
           <>

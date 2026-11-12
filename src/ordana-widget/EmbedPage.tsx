@@ -86,6 +86,22 @@ export default function EmbedPage() {
   }, [validKey, key])
   useEffect(askLoad, [askLoad])
 
+  // Host sign-in: on every load we ask the host page who is signed in; it may answer with an identity
+  // token, accepted only from window.parent. Ordana (via our server) says who the token belongs to.
+  useEffect(() => {
+    if (!backend || window.parent === window) return
+    function onMessage(e: MessageEvent) {
+      if (e.source !== window.parent) return
+      const d = e.data as { type?: unknown; v?: unknown; token?: unknown } | null
+      if (!d || d.type !== 'ordana-widget:identity' || d.v !== 1) return
+      if (d.token === null) void backend!.hostIdentity(null)
+      else if (typeof d.token === 'string' && d.token) void backend!.hostIdentity(d.token)
+    }
+    window.addEventListener('message', onMessage)
+    window.parent.postMessage({ type: 'ordana-widget:signin', v: 1, reason: 'load' }, '*')
+    return () => window.removeEventListener('message', onMessage)
+  }, [backend])
+
   // Hug the content and tell the host page our height on every change.
   useEffect(() => {
     const el = shell.current
@@ -124,6 +140,7 @@ export default function EmbedPage() {
           look={look}
           bridge={bridge}
           onUserChange={askLoad}
+          signin={load.signin === 'host' ? { label: load.signinLabel ?? 'Sign in' } : null}
         />
       ) : (
         <WidgetFrame look={look} mode={mode}>

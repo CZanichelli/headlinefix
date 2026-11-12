@@ -26,6 +26,8 @@ type CheckResponse = {
   plan: string | null
   variant: string | null
   variant_round?: string | number | null
+  signin?: 'ordana' | 'host' | null
+  signin_label?: string | null
 }
 
 /** The random id behind "anon_…" before sign-in. Kept in storage, or for this page load when storage is blocked. */
@@ -49,6 +51,8 @@ function toResult(r: CheckResponse): CheckResult {
     reason: r.reason,
     remaining: r.remaining,
     plan: r.plan,
+    signin: r.signin ?? null,
+    signinLabel: r.signin_label ?? null,
   }
 }
 
@@ -69,7 +73,14 @@ async function check(hostKey: string, consume: 0 | 1): Promise<CheckResponse> {
   return data as CheckResponse
 }
 
-export type LoadAnswer = { variant: Variant; round: string | number | null; gone: boolean }
+export type LoadAnswer = {
+  variant: Variant
+  round: string | number | null
+  gone: boolean
+  /** From the same reply: who signs people in on this host (host sign-in shows signinLabel). */
+  signin?: 'ordana' | 'host' | null
+  signinLabel?: string | null
+}
 
 /** The end_user_ref the server will use: the Ordana sub once signed in, else anon_<visitor id>. */
 function userRef(): string {
@@ -106,6 +117,8 @@ export async function loadCheck(hostKey: string): Promise<LoadAnswer> {
       variant: r.variant === 'b' ? 'b' : 'a',
       round: r.variant_round ?? null,
       gone: !r.entitled && r.reason !== null && GONE_REASONS.has(r.reason),
+      signin: r.signin ?? null,
+      signinLabel: r.signin_label ?? null,
     }
     session.set(keptKey, JSON.stringify(answer))
     return answer
@@ -205,22 +218,74 @@ function errorText(code: unknown): string {
   return 'Sign-in didn’t finish. Please try again.'
 }
 
-export function createLiveBackend(hostKey: string): WidgetBackend {
+function storedUser(): WidgetUser | null {
+  if (!local.get(TOKEN_KEY)) return null
+  try {
+    const u = JSON.parse(local.get(USER_KEY) ?? 'null') as WidgetUser | null
+    return u && typeof u.id === 'string' ? u : null
+  } catch {
+    return null
+  }
+}
+
+export type LiveBackend = WidgetBackend & {
+  /** The host page posted { type: "ordana-widget:identity", token }. Ordana says who it is; null signs out. */
+  hostIdentity(token: string | null): Promise<void>
+}
+
+export function createLiveBackend(hostKey: string): LiveBackend {
+  const listeners = new Set<(u: WidgetUser | null) => void>()
+  const notify = (u: WidgetUser | null) => listeners.forEach((l) => l(u))
+  const clear = () => {
+    local.remove(TOKEN_KEY)
+    local.remove(USER_KEY)
+  }
+  let identities = 0
+
   return {
-    currentUser() {
-      if (!local.get(TOKEN_KEY)) return null
+    currentUser: storedUser,
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    requestHostSignIn() {
+      if (window.parent !== window) window.parent.postMessage({ type: 'ordana-widget:signin', v: 1, reason: 'needed' }, '*')
+    },
+    async hostIdentity(token) {
+      const n = ++identities // only the latest message counts
+      const before = storedUser()
+      if (token === null) {
+        if (before) {
+          clear()
+          notify(null)
+        }
+        return
+      }
+      let res: Response
       try {
-        const u = JSON.parse(local.get(USER_KEY) ?? 'null') as WidgetUser | null
-        return u && typeof u.id === 'string' ? u : null
+        res = await fetch(`${API}/host-signin`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: hostKey, token }),
+        })
       } catch {
-        return null
+        return // offline: keep whoever is signed in
+      }
+      const data = await res.json().catch(() => null)
+      if (n !== identities) return
+      if (res.ok && data?.token && typeof data.user?.id === 'string') {
+        local.set(TOKEN_KEY, data.token)
+        local.set(USER_KEY, JSON.stringify(data.user))
+        // A different sub signs the first person out and the new one in; the same one just gets a fresh session.
+        if (before?.id !== data.user.id) notify(data.user as WidgetUser)
+      } else if (res.status === 401 && before) {
+        // Ordana refused the host's token: whoever was signed in is no longer.
+        clear()
+        notify(null)
       }
     },
     signIn: (signal) => signInPopup(hostKey, signal),
-    signOut() {
-      local.remove(TOKEN_KEY)
-      local.remove(USER_KEY)
-    },
+    signOut: clear,
     use: async () => toResult(await check(hostKey, 1)),
     status: async () => toResult(await check(hostKey, 0)),
     openCheckout(url) {

@@ -18,7 +18,7 @@ Manage it at https://platform.joinordana.com/scenario/ab5b4b1f-61d9-4db7-bb2a-ba
 | Path | What |
 | --- | --- |
 | `src/ordana-widget/` | All widget UI: `Widget.tsx` (shared screens), `EmbedPage.tsx` (embed + host messages), `PreviewPage.tsx`, `SignInPages.tsx` (sign-in popup), `liveBackend.ts`, `theme.ts`, `storage.ts`, `types.ts`, `widget.css`, `routes.tsx` |
-| `api/ordana-widget/` | Vercel functions: `authorize.ts`, `session.ts`, `check.ts`, `whoami.ts`, shared `_lib.ts`, `_env.d.ts` |
+| `api/ordana-widget/` | Vercel functions: `authorize.ts`, `session.ts`, `host-signin.ts`, `check.ts`, `whoami.ts`, shared `_lib.ts`, `_env.d.ts` |
 | `supabase/ordana-widget.sql` | Sign-in relay table + two functions, signed-out use counter table + two functions (run in the Supabase SQL editor; safe to re-run) |
 | `src/App.tsx` | Two lines: import and render `ordanaWidgetRoutes` |
 | `vercel.json` | SPA rewrite skips `/api/`; `frame-ancestors *` header on `/ordana-widget/embed` |
@@ -76,6 +76,16 @@ on the next request):
   read once). The embed polls `GET /api/ordana-widget/session?state=…` every 2s for up to 5 minutes (and on focus/visibility);
   the popup's postMessage only makes it ask at once. The widget updates in place, no reload. No user table: identity is `sub`.
   In white-label mode the email may be a `@hidden.id.joinordana.com` stand-in: it is never shown and never mailed.
+- **Host sign-in** (`"host_accounts": true` in the widget JSON): for hosts that sign their own users in. On every load the
+  embed posts `{ type: "ordana-widget:signin", v: 1, reason: "load" }` to its parent and accepts
+  `{ type: "ordana-widget:identity", v: 1, token }` only when `event.source === window.parent`. The token goes to
+  `POST /api/ordana-widget/host-signin`, which asks Ordana (`action: "host_signin"`); only Ordana's answer says who it is
+  (`sub` hid_…, name, email or null). The server signs the same widget session as for oid_… and every check uses the hid_ sub
+  as `end_user_ref`. Signed in place, no popup. `token: null` signs out; a different sub replaces the first person; a token
+  Ordana refuses signs out. When a check answers `signin: "host"` (the load check's answer is kept), every "Continue with Ordana"
+  becomes the check's `signin_label`, and a rewrite that needs sign-in posts `{ ..., reason: "needed" }` and runs once the host
+  has signed the person in. The menu says "Signed in through <host>". Not built: `maker_visible` (the widget is white-label, so
+  the maker never shows anyway) and "Open <my product>".
 - `/api/ordana-widget/whoami` reports only `livemode`, `billing_live`, the widget name, the number of hosts and the public
   `oidc.client_id` / `oidc.issuer`, and `session_secret: true/false` (whether Ordana sent one, never its value).
 - **Theme** URL parameters (`theme, accent, accent_text, bg, surface, text, muted, border, radius, font, frame=none, host, fit=fill`)
@@ -118,7 +128,8 @@ in the load check); the embed never picks one itself, except version a when the 
 - **Rewrite logic**: `src/features/rewrite/rewrite.ts` (`rewriteHeadline`, its three styles, ids and labels: benefit/Benefit-first, question/Question, punchy/Short & punchy). `chosen_style` sends these ids to hosts.
 - **Free tier and price wording**: `ANON_FREE_TRIES` (3, enforced) in `api/ordana-widget/_lib.ts`; `FREE_TRIES` (3) and `FREE_WITH_ACCOUNT` (20) in `src/ordana-widget/Widget.tsx` (sign-in step, hints, Plan & billing, Help) mirror the offer in Ordana. The app's own tiers live in `src/pages/Pricing.tsx` and `src/features/usage/usage.ts` (different on purpose).
 - **Sign-in**: "Continue with Ordana" only (`src/ordana-widget/SignInPages.tsx`, `src/ordana-widget/liveBackend.ts`, `api/ordana-widget/authorize.ts`, `api/ordana-widget/session.ts`, `supabase/ordana-widget.sql`). It does not use the app's Supabase auth.
-- **API routes it calls**: `/api/ordana-widget/check`, `/api/ordana-widget/session`, `/api/ordana-widget/authorize` (all internal, not for hosts) and Ordana's entitlement check (`api/ordana-widget/_lib.ts`).
+- **Host sign-in**: the `ordana-widget:signin` / `ordana-widget:identity` messages (`src/ordana-widget/EmbedPage.tsx`), `api/ordana-widget/host-signin.ts`, and `"host_accounts": true` in the widget JSON.
+- **API routes it calls**: `/api/ordana-widget/check`, `/api/ordana-widget/session`, `/api/ordana-widget/authorize`, `/api/ordana-widget/host-signin` (all internal, not for hosts) and Ordana's entitlement check (`api/ordana-widget/_lib.ts`).
 - **Hosting**: `vercel.json` (rewrite + framing header).
 
 ## Host test
@@ -131,4 +142,5 @@ Run this after every change to the widget, against **production**:
 4. **Looks.** Test light in a white card; `theme=dark&frame=none&bg=<card colour>` in a dark card; and dark with `frame=none` in a white card. Everything must stay readable. Then try `accent=9fe3d6` (pale): button text must stay readable.
 5. **Shared context.** Send `{type:"ordana-widget:context",v:1,fields:{draft_title,audience,author_email}}`. The two declared fields prefill with "From <host>", `author_email` is ignored, and nothing runs until you click. "Don't use" clears them. After Yes to "Keep <host> updated", "Use this" delivers `ordana-widget:result` with only `chosen_headline` and `chosen_style`.
 6. **Journey.** Use 3 rewrites without an account. The 4th shows the sign-in step, also after reloading the embed, and Ordana counts no 4th use; "Continue with Ordana" (once with Google, once with an email code) closes the popup and shows the results without a reload. Use up the 20, and the paywall appears inside the widget: signed out it says "Continue with Ordana to buy", signed in "Upgrade for unlimited" opens Ordana's checkout. Then try a second fresh visitor in another browser. Sign out, then sign in again (one tap). While signed in, disconnect the widget in your Ordana account: the next rewrite signs you out and shows "Continue with Ordana" (not "Not available right now"), and continuing signs you back in. Finally, an embed URL with no key should show a clear message.
-7. **Live key.** With the server key set, `/api/ordana-widget/whoami` answers `livemode: true`, and one real rewrite in the embed shows up in Ordana.
+7. **Host sign-in.** With a `wsk_test_` key locally, frame the embed from a local page that listens for `ordana-widget:signin` (`load` arrives on every load) and posts `ordana-widget:identity` with `"test_alice"`, then `"test_bob"`, then `null`: Alice is signed in in place (menu "Signed in through <host>"), Bob replaces her, `null` signs out. On a host with `signin: "host"`, every "Continue with Ordana" shows the host's `signin_label` instead and the 4th signed-out rewrite posts `reason: "needed"`.
+8. **Live key.** With the server key set, `/api/ordana-widget/whoami` answers `livemode: true`, and one real rewrite in the embed shows up in Ordana.

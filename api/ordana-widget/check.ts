@@ -34,6 +34,9 @@ async function anonUse(key: string, ref: string): Promise<Entitlement> {
       plan: null,
       variant: null,
       variant_round: null,
+      // Unknown here (Ordana isn't asked): the embed keeps the sign-in kind from its load check.
+      signin: null,
+      signin_label: null,
       connected: true,
     }
   }

@@ -81,6 +81,9 @@ export type Entitlement = {
   plan: string | null
   variant: string | null
   variant_round: string | number | null
+  /** Who signs people in on this host: "ordana" (Continue with Ordana) or "host" (the host's own sign-in). */
+  signin: 'ordana' | 'host' | null
+  signin_label: string | null
   connected: boolean
 }
 
@@ -110,6 +113,8 @@ export async function checkEntitlement(hostKey: string, endUserRef: string, cons
       plan: null,
       variant: null,
       variant_round: null,
+      signin: null,
+      signin_label: null,
       connected: false,
     }
   }
@@ -132,6 +137,8 @@ export async function checkEntitlement(hostKey: string, endUserRef: string, cons
     plan: str(d.plan),
     variant: str(d.variant),
     variant_round: str(d.variant_round) ?? num(d.variant_round),
+    signin: d.signin === 'host' ? 'host' : d.signin === 'ordana' ? 'ordana' : null,
+    signin_label: str(d.signin_label),
     connected: true,
   }
   const ttl = num(d.cache_ttl_s)
@@ -141,6 +148,26 @@ export async function checkEntitlement(hostKey: string, endUserRef: string, cons
 }
 
 export const whoami = () => ordana({ action: 'whoami' })
+
+export type HostIdentity = { sub: string; name: string | null; email: string | null }
+
+/**
+ * Host sign-in: asks Ordana who the host's token belongs to. Only this answer says who it is, never the
+ * host's message. null when Ordana refuses the token or answers without a hid_ sub.
+ */
+export async function hostSignIn(hostKey: string, hostToken: string): Promise<HostIdentity | null> {
+  let d: Record<string, unknown>
+  try {
+    d = await ordana({ action: 'host_signin', attachment_key: hostKey, host_token: hostToken })
+  } catch (e) {
+    // A refusal (4xx) is an answer; an outage is rethrown so the caller can say "try again".
+    if (e instanceof Error && /^Ordana host_signin failed \(4\d\d\)/.test(e.message)) return null
+    throw e
+  }
+  const sub = str(d.sub)
+  if (!sub || !/^hid_[A-Za-z0-9_-]{1,200}$/.test(sub)) return null
+  return { sub, name: str(d.name), email: str(d.email) }
+}
 
 // ---------- Widget session (signed, stateless; identity is the Ordana subject) ----------
 const enc = new TextEncoder()

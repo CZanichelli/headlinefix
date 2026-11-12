@@ -18,7 +18,13 @@ export type CheckResult = {
   reason: string | null
   remaining: number | null
   plan: string | null
+  /** "host": this host signs people in itself (show signinLabel, never "Continue with Ordana"). null = keep what we knew. */
+  signin?: 'ordana' | 'host' | null
+  signinLabel?: string | null
 }
+
+/** Signed in through the host's own sign-in (Ordana's hid_… sub), not with Ordana. */
+export const isHostUser = (u: WidgetUser | null) => Boolean(u?.id.startsWith('hid_'))
 
 /** Everything the widget needs from outside. The embed talks to the server; the preview fakes it. */
 export interface WidgetBackend {
@@ -32,6 +38,10 @@ export interface WidgetBackend {
   status(): Promise<CheckResult>
   /** Opens Ordana's checkout in a new tab. Call straight from a click. */
   openCheckout(url: string): void
+  /** Host sign-in: tells the host page someone needs to sign in (it answers with an identity message). */
+  requestHostSignIn?(): void
+  /** Called when the signed-in user changes from outside the widget (the host signed someone in or out). */
+  subscribe?(listener: (user: WidgetUser | null) => void): () => void
 }
 
 /** The fields declared in ui.context.in. A host may send nothing else; anything else is dropped. */
