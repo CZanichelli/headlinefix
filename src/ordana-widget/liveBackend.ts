@@ -113,8 +113,12 @@ function userRef(): string {
  * host. Kept for the session per user ref, so it's asked again after sign-in (or sign-out). Only a real
  * answer is kept; a failed or slow check shows version a now and is asked again on the next load.
  */
-export async function loadCheck(hostKey: string): Promise<LoadAnswer> {
-  const keptKey = `${LOAD_KEY}:${userRef()}`
+export async function loadCheck(hostKey: string, retries = 2): Promise<LoadAnswer> {
+  const ref = userRef()
+  const keptKey = `${LOAD_KEY}:${ref}`
+  // The host may sign its user in (identity message) while this check is in flight for the anon ref. Then the
+  // answer belongs to someone else, so ask again for whoever is signed in now and show that answer's words.
+  const askedForSomeoneElse = () => retries > 0 && userRef() !== ref
   try {
     const kept = JSON.parse(session.get(keptKey) ?? 'null') as LoadAnswer | null
     // An answer kept before it carried the words (no `check`) is asked again, never shown with guessed words.
@@ -124,6 +128,7 @@ export async function loadCheck(hostKey: string): Promise<LoadAnswer> {
   }
   try {
     const r = await Promise.race([check(hostKey, 0), new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000))])
+    if (askedForSomeoneElse()) return loadCheck(hostKey, retries - 1)
     if (!r) return { variant: 'a', round: null, gone: false }
     const answer: LoadAnswer = {
       // Only a version the reply named; anything else is the control.
@@ -136,6 +141,7 @@ export async function loadCheck(hostKey: string): Promise<LoadAnswer> {
     session.set(keptKey, JSON.stringify(answer))
     return answer
   } catch {
+    if (askedForSomeoneElse()) return loadCheck(hostKey, retries - 1)
     // A failed check never hides the widget.
     return { variant: 'a', round: null, gone: false }
   }
