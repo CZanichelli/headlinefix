@@ -88,13 +88,10 @@ export type LoadAnswer = {
   variant: Variant
   round: string | number | null
   gone: boolean
-  /** From the same reply: who signs people in on this host (host sign-in shows signinLabel). */
-  signin?: 'ordana' | 'host' | null
-  signinLabel?: string | null
   /** host_winding_down: show nothing at all. */
   hidden?: boolean
-  ordanaLine?: string | null
-  makerVisible?: boolean
+  /** The whole answer, so the widget shows its words (signin, ordana_line, buy_label, maker_visible…) from the start. */
+  check?: CheckResult
 }
 
 /** The end_user_ref the server will use: the Ordana sub once signed in, else anon_<visitor id>. */
@@ -120,7 +117,8 @@ export async function loadCheck(hostKey: string): Promise<LoadAnswer> {
   const keptKey = `${LOAD_KEY}:${userRef()}`
   try {
     const kept = JSON.parse(session.get(keptKey) ?? 'null') as LoadAnswer | null
-    if (kept && (kept.variant === 'a' || kept.variant === 'b')) return kept
+    // An answer kept before it carried the words (no `check`) is asked again, never shown with guessed words.
+    if (kept && (kept.variant === 'a' || kept.variant === 'b') && kept.check) return kept
   } catch {
     /* ask again */
   }
@@ -132,11 +130,8 @@ export async function loadCheck(hostKey: string): Promise<LoadAnswer> {
       variant: r.variant === 'b' ? 'b' : 'a',
       round: r.variant_round ?? null,
       gone: !r.entitled && r.reason !== null && GONE_REASONS.has(r.reason),
-      signin: r.signin ?? null,
-      signinLabel: r.signin_label ?? null,
       hidden: !r.entitled && r.reason === WINDING_DOWN,
-      ordanaLine: 'ordana_line' in r ? (r.ordana_line ?? null) : undefined,
-      makerVisible: r.maker_visible,
+      check: toResult(r),
     }
     session.set(keptKey, JSON.stringify(answer))
     return answer
@@ -259,12 +254,25 @@ export function createLiveBackend(hostKey: string): LiveBackend {
     local.remove(USER_KEY)
   }
   let identities = 0
+  // True while a host identity is being checked with Ordana, so the widget doesn't show the signed-out start meanwhile.
+  let pending = false
+  const watchers = new Set<(pending: boolean) => void>()
+  const setPending = (p: boolean) => {
+    if (pending === p) return
+    pending = p
+    watchers.forEach((w) => w(p))
+  }
 
   return {
     currentUser: storedUser,
     subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)
+    },
+    hostSigningIn: () => pending,
+    watchHost(watcher) {
+      watchers.add(watcher)
+      return () => watchers.delete(watcher)
     },
     requestHostSignIn() {
       if (window.parent !== window) window.parent.postMessage({ type: 'ordana-widget:signin', v: 1, reason: 'needed' }, '*')
@@ -273,12 +281,14 @@ export function createLiveBackend(hostKey: string): LiveBackend {
       const n = ++identities // only the latest message counts
       const before = storedUser()
       if (token === null) {
+        setPending(false)
         if (before) {
           clear()
           notify(null)
         }
         return
       }
+      setPending(true)
       let res: Response
       try {
         res = await fetch(`${API}/host-signin`, {
@@ -287,10 +297,12 @@ export function createLiveBackend(hostKey: string): LiveBackend {
           body: JSON.stringify({ key: hostKey, token }),
         })
       } catch {
+        if (n === identities) setPending(false)
         return // offline: keep whoever is signed in
       }
       const data = await res.json().catch(() => null)
       if (n !== identities) return
+      setPending(false)
       if (res.ok && data?.token && typeof data.user?.id === 'string') {
         local.set(TOKEN_KEY, data.token)
         local.set(USER_KEY, JSON.stringify(data.user))

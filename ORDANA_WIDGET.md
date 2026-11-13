@@ -5,7 +5,7 @@ Manage it at https://platform.joinordana.com/scenario/ab5b4b1f-61d9-4db7-bb2a-ba
 
 - **Embed** (what hosts mount): `https://headlinefix.vercel.app/ordana-widget/embed?key=wak_…&mode=card|page|modal`
 - **Preview** (fictional data, no auth, no network): `https://headlinefix.vercel.app/ordana-widget-preview`
-- **Naming HeadlineFix** follows the check's `maker_visible` (missing = true): "by HeadlineFix · Open HeadlineFix" under the
+- **Naming HeadlineFix** follows the check's `maker_visible` (missing in Ordana's answer = true; nothing shows before a check answered): "by HeadlineFix · Open HeadlineFix" under the
   title while true, HeadlineFix nowhere while false. There is no logo. Ordana appears only for "Continue with Ordana", the
   check's `ordana_line` and its checkout. The ⋯ menu: who you are (Continue with Ordana / name + "Signed in with Ordana ↗")
   · Settings · Plan & billing · Help · Sign out.
@@ -78,10 +78,12 @@ on the next request):
   read once). The embed polls `GET /api/ordana-widget/session?state=…` every 2s for up to 5 minutes (and on focus/visibility);
   the popup's postMessage only makes it ask at once. The widget updates in place, no reload. No user table: identity is `sub`.
   In white-label mode the email may be a `@hidden.id.joinordana.com` stand-in: it is never shown and never mailed.
-- **Words from the check** (never hard-coded; an answer that leaves a field out keeps the last value):
+- **Words from the check** (never hard-coded or assumed): applied from the load check (consume: 0, the whole answer is
+  kept with it) and from every rewrite check; an answer that leaves a field out keeps the last value. Until a check has
+  answered, none of them show: no maker name, no "Open HeadlineFix", no `ordana_line`. Load answers kept from before this
+  are asked again. While a host identity is being checked, the signed-out start text ("3 free tries… Sign in") is hidden.
   - `ordana_line`: one small muted line, exactly as sent, under every "Continue with Ordana" button and under the paywall's
-    Buy button; nothing when null. Before any check answered: "<host> uses Ordana for sign-in and payment." (`host=` of the
-    embed URL), or "Sign-in and payment by Ordana." without one.
+    Buy button; nothing when null or before a check answered.
   - `signin_label` of the answer that asked for sign-in (e.g. "Continue with Ordana to buy"); `buy_label` on every Buy button
     (fallback "Upgrade for unlimited").
   - `host_billed: true`: no price wording, `checkout_url` is the host's own upgrade page (new tab), Plan & billing shows only

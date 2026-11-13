@@ -129,12 +129,8 @@ type Props = {
   initial?: WidgetInitial
   /** Called after sign-in or sign-out (the user ref changed), e.g. to ask Ordana for this user's version. */
   onUserChange?: () => void
-  /** From the load check: this host signs people in itself, with this label. null = Continue with Ordana. */
-  signin?: { label: string } | null
-  /** From the load check: the line under sign-in/buy buttons. undefined = no check has answered yet. */
-  ordanaLine?: string | null
-  /** From the load check: "by HeadlineFix" / "Open HeadlineFix" shown. */
-  makerVisible?: boolean
+  /** The load check's answer (consume: 0). Its words show from the start; undefined = it never answered. */
+  loadCheck?: CheckResult
   /** A check answered host_winding_down: the embed shows nothing at all. */
   onHide?: () => void
 }
@@ -149,23 +145,30 @@ export default function Widget({
   bridge = NO_BRIDGE,
   initial = {},
   onUserChange,
-  signin = null,
-  ordanaLine: firstOrdanaLine,
-  makerVisible: firstMakerVisible = true,
+  loadCheck,
   onHide,
 }: Props) {
   const [user, setUser] = useState<WidgetUser | null>(() => backend.currentUser())
-  // The words to show come from Ordana's latest answer; an answer that leaves one out keeps the last one.
-  const [ordanaLine, setOrdanaLine] = useState<string | null | undefined>(firstOrdanaLine)
-  const [makerVisible, setMakerVisible] = useState(firstMakerVisible)
-  const [buyLabel, setBuyLabel] = useState<string | null>(null)
-  const [hostBilled, setHostBilled] = useState(false)
+  // The words to show come only from Ordana's answers: the load check, then every rewrite check. Nothing is
+  // assumed before one answers (no maker name, no Ordana line). An answer that leaves a field out keeps the last value.
+  const [ordanaLine, setOrdanaLine] = useState<string | null | undefined>(() => loadCheck?.ordanaLine)
+  const [makerVisible, setMakerVisible] = useState<boolean | undefined>(() => loadCheck?.makerVisible)
+  const [buyLabel, setBuyLabel] = useState<string | null>(() => loadCheck?.buyLabel ?? null)
+  const [hostBilled, setHostBilled] = useState(() => loadCheck?.hostBilled === true)
+  const [signinLabel, setSigninLabel] = useState<string | null>(() => loadCheck?.signinLabel ?? null)
   // signin_label of the answer that asked for sign-in (e.g. "Continue with Ordana to buy").
   const [stepLabel, setStepLabel] = useState<string | null>(null)
   // Host sign-in: show the host's signin_label and ask the host page, never "Continue with Ordana".
-  const [hostSignin, setHostSignin] = useState(signin)
-  const signinProp = signin?.label ?? null
-  useEffect(() => setHostSignin(signinProp === null ? null : { label: signinProp }), [signinProp])
+  const [hostSignin, setHostSignin] = useState<{ label: string } | null>(() =>
+    loadCheck?.signin === 'host' ? { label: loadCheck.signinLabel ?? 'Sign in' } : null,
+  )
+  // A newer load check (after sign-in or sign-out) brings its words too.
+  useEffect(() => {
+    if (loadCheck) applyWords(loadCheck)
+  }, [loadCheck])
+  // While the host's identity is being checked, don't show the signed-out start ("3 free tries… Sign in").
+  const [hostPending, setHostPending] = useState(() => backend.hostSigningIn?.() ?? false)
+  useEffect(() => backend.watchHost?.(setHostPending), [backend])
   // What to run once the host has signed someone in (e.g. the rewrite that asked for sign-in).
   const afterHostSignIn = useRef<(() => void | Promise<void>) | null>(null)
   const userId = user?.id ?? null
@@ -239,8 +242,14 @@ export default function Widget({
   function applyCheck(r: CheckResult) {
     setRemaining(r.remaining)
     setCheckoutUrl(r.checkoutUrl ?? r.creditPackUrl)
+    applyWords(r)
+  }
+
+  /** The words from one of Ordana's answers. Fields it didn't send (undefined/null where noted) keep their last value. */
+  function applyWords(r: CheckResult) {
     if (r.signin === 'host') setHostSignin({ label: r.signinLabel ?? 'Sign in' })
     else if (r.signin === 'ordana') setHostSignin(null)
+    if (r.signin && r.signinLabel) setSigninLabel(r.signinLabel)
     if (r.ordanaLine !== undefined) setOrdanaLine(r.ordanaLine)
     if (r.makerVisible !== undefined) setMakerVisible(r.makerVisible)
     if (r.hostBilled !== undefined) setHostBilled(r.hostBilled)
@@ -253,9 +262,11 @@ export default function Widget({
   }
 
   // The host signed someone in or out from outside the widget. A different person replaces the first.
-  useEffect(
-    () =>
-      backend.subscribe?.((u) => {
+  useEffect(() => {
+    // A host sign-in that finished between our first render and subscribing would otherwise be missed.
+    const now = backend.currentUser()
+    setUser((u) => (u?.id === now?.id ? u : now))
+    return backend.subscribe?.((u) => {
         setUser(u)
         setReconnect(false)
         setSignInError(null)
@@ -266,9 +277,8 @@ export default function Widget({
         setPanel(null)
         if (u && then) void then()
         else setPhase('idle')
-      }),
-    [backend],
-  )
+      })
+  }, [backend])
 
   async function runUse(signedIn = user !== null) {
     setPhase('checking')
@@ -395,13 +405,8 @@ export default function Widget({
   )
 
   // After sign-in, `then` runs with the new user already set, so it must not read `user` from this render.
-  // The check's ordana_line, exactly (null: none). Before any check has answered: the host vouching for Ordana.
-  const ordanaLineText =
-    ordanaLine === undefined
-      ? look.host
-        ? `${look.host} uses Ordana for sign-in and payment.`
-        : 'Sign-in and payment by Ordana.'
-      : ordanaLine
+  // The check's ordana_line, exactly; nothing when it's null or no check has answered yet.
+  const ordanaLineText = ordanaLine ?? null
   const withOrdanaLine = (button: ReactNode) =>
     ordanaLineText ? (
       <div className="ow-with-line">
@@ -436,7 +441,8 @@ export default function Widget({
 
   const buyText = buyLabel ?? 'Upgrade for unlimited'
 
-  const maker = makerVisible ? (
+  // Only once a check said maker_visible: true; never assumed.
+  const maker = makerVisible === true ? (
     <p className="ow-small ow-muted">
       by {MAKER} ·{' '}
       <button type="button" className="ow-link" onClick={() => backend.openMaker?.()}>
@@ -527,7 +533,7 @@ export default function Widget({
               )}
             </form>
 
-            {phase === 'idle' && !user && (
+            {phase === 'idle' && !user && !hostPending && (
               <p className="ow-small ow-muted">
                 {FREE_TRIES} free tries, no account needed. Already have an account?{' '}
                 {hostSignin ? (
@@ -581,7 +587,7 @@ export default function Widget({
                     </li>
                   ))}
                 </ul>
-                {continueButton(stepLabel ?? 'Continue with Ordana', () => runUse(true))}
+                {continueButton(stepLabel ?? signinLabel ?? 'Continue with Ordana', () => runUse(true))}
                 {signInError && <p className="ow-small ow-error-text">{signInError}</p>}
               </section>
             )}
@@ -690,7 +696,7 @@ export default function Widget({
         <Menu
           user={user}
           hostName={hostName}
-          signInButton={continueButton('Continue with Ordana')}
+          signInButton={continueButton(signinLabel ?? 'Continue with Ordana')}
           signInError={signInError}
           onPick={setPanel}
           onSignOut={signOut}
@@ -704,7 +710,7 @@ export default function Widget({
             <BillingPanel
               backend={backend}
               signedIn={Boolean(user)}
-              signInButton={continueButton('Continue with Ordana')}
+              signInButton={continueButton(signinLabel ?? 'Continue with Ordana')}
               onSignedOut={signedOut}
               onUpgrade={(url) => {
                 backend.openCheckout(url)

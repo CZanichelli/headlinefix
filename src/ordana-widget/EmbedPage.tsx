@@ -147,9 +147,7 @@ export default function EmbedPage() {
           look={look}
           bridge={bridge}
           onUserChange={askLoad}
-          signin={load.signin === 'host' ? { label: load.signinLabel ?? 'Sign in' } : null}
-          ordanaLine={load.ordanaLine}
-          makerVisible={load.makerVisible !== false}
+          loadCheck={load.check}
           onHide={() => setWindingDown(true)}
         />
       ) : (

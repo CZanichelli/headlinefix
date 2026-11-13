@@ -54,6 +54,9 @@ export interface WidgetBackend {
   requestHostSignIn?(): void
   /** Called when the signed-in user changes from outside the widget (the host signed someone in or out). */
   subscribe?(listener: (user: WidgetUser | null) => void): () => void
+  /** Host sign-in: true while the host's identity is being checked. */
+  hostSigningIn?(): boolean
+  watchHost?(watcher: (pending: boolean) => void): () => void
   /** A rewrite failed after its use was spent: give it back. */
   release?(ticket: string): void
   /** "Open HeadlineFix" in a new tab, signed straight in when possible. Call straight from a click. */
