@@ -33,7 +33,7 @@ Manage it at https://platform.joinordana.com/scenario/ab5b4b1f-61d9-4db7-bb2a-ba
 | --- | --- | --- |
 | `ORDANA_WIDGET_KEY` | Required (Your widget → Connect your server) | Server key, the only Ordana variable. `wsk_live_…` in Production, `wsk_test_…` only locally. Also sent as the OIDC client secret unless `ORDANA_OIDC_CLIENT_SECRET` is set. Without it the widget runs unmetered, nothing is counted and sign-in is off. |
 | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` | Already set for the app | Also used server-side by the sign-in relay (`SUPABASE_URL` / `SUPABASE_ANON_KEY` override them). |
-| `SUPABASE_SERVICE_ROLE_KEY` | Required for "Open HeadlineFix" to sign people in | Supabase → Project Settings → API → `service_role` key. Server only (never `VITE_`). Without it "Open HeadlineFix" just opens the site, signed out. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Required for "Open HeadlineFix" to sign people in | Supabase → Project Settings → API Keys → a **secret key** (`sb_secret_…`; best a separate one named e.g. `headlinefix-widget`). A legacy `service_role` JWT also works. Server only (never `VITE_`). Without it "Open HeadlineFix" just opens the site, signed out. |
 | `ORDANA_API_URL`, `ORDANA_OIDC_CLIENT_SECRET` | Optional overrides | Default to Ordana's entitlement endpoint and `ORDANA_WIDGET_KEY`. |
 
 Redeploy after adding or changing any of them. `ORDANA_WIDGET_SESSION_SECRET` and `ORDANA_OIDC_CLIENT_ID` are no longer read

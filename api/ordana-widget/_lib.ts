@@ -334,7 +334,12 @@ export async function makerSignInLink(s: Omit<Session, 'exp'>, origin: string): 
   const key = env('SUPABASE_SERVICE_ROLE_KEY')
   const base = (env('SUPABASE_URL') ?? env('VITE_SUPABASE_URL'))?.replace(/\/+$/, '')
   if (!key || !base) return null
-  const headers = { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }
+  // A secret key (sb_secret_…) goes in apikey only; a legacy service_role key is a JWT and goes in Authorization too.
+  const headers = {
+    apikey: key,
+    ...(key.startsWith('eyJ') ? { Authorization: `Bearer ${key}` } : {}),
+    'Content-Type': 'application/json',
+  }
   const email = `${s.sub.toLowerCase()}@widget-users.headlinefix.invalid`
   const created = await fetch(`${base}/auth/v1/admin/users`, {
     method: 'POST',
