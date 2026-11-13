@@ -84,6 +84,14 @@ export type Entitlement = {
   /** Who signs people in on this host: "ordana" (Continue with Ordana) or "host" (the host's own sign-in). */
   signin: 'ordana' | 'host' | null
   signin_label: string | null
+  // The words to show, straight from Ordana. Left out of answers Ordana didn't give (the embed keeps what it knew).
+  /** The line under sign-in/buy buttons; null = show none. */
+  ordana_line?: string | null
+  buy_label?: string | null
+  /** "by HeadlineFix" / "Open HeadlineFix" only while true; Ordana leaving it out counts as true. */
+  maker_visible?: boolean
+  /** The host charges its users itself: no price, and checkout_url is the host's own upgrade page. */
+  host_billed?: boolean
   connected: boolean
 }
 
@@ -139,6 +147,10 @@ export async function checkEntitlement(hostKey: string, endUserRef: string, cons
     variant_round: str(d.variant_round) ?? num(d.variant_round),
     signin: d.signin === 'host' ? 'host' : d.signin === 'ordana' ? 'ordana' : null,
     signin_label: str(d.signin_label),
+    ordana_line: 'ordana_line' in d ? str(d.ordana_line) : undefined,
+    buy_label: str(d.buy_label),
+    maker_visible: d.maker_visible !== false,
+    host_billed: d.host_billed === true,
     connected: true,
   }
   const ttl = num(d.cache_ttl_s)
@@ -214,13 +226,46 @@ if (ordanaConnected()) widgetConfig().catch(() => {})
 
 // Signed with whoami's session_secret. Never derived from ORDANA_WIDGET_KEY, so rotating the Ordana key
 // never signs anyone out. Throws when the secret can't be fetched, so callers fail without signing anyone out.
-async function hmacKey(): Promise<CryptoKey> {
+// `purpose` keeps sessions and release tickets apart: one can never pass for the other.
+async function hmacKey(purpose: 'session' | 'release' = 'session'): Promise<CryptoKey> {
   const { sessionSecret } = await widgetConfig()
-  return crypto.subtle.importKey('raw', enc.encode(`ordana-widget-session:${sessionSecret}`), { name: 'HMAC', hash: 'SHA-256' }, false, [
+  return crypto.subtle.importKey('raw', enc.encode(`ordana-widget-${purpose}:${sessionSecret}`), { name: 'HMAC', hash: 'SHA-256' }, false, [
     'sign',
     'verify',
   ])
 }
+
+// ---------- Release (give a use back when it failed after a consume) ----------
+export type ReleaseKind = 'free' | 'credit'
+type Ticket = { k: string; r: string; kind: ReleaseKind; n: string; exp: number }
+
+/** Which kind of use a consume: 1 answer spent; null when there is nothing to give back (e.g. a subscriber). */
+export const releaseKind = (e: Entitlement): ReleaseKind | null =>
+  !e.entitled ? null : e.reason === 'free' ? 'free' : e.reason && /credit/.test(e.reason) ? 'credit' : null
+
+/** A ticket for exactly the use just spent: signed, 2 minutes, usable once (see release.ts). */
+export async function releaseTicket(hostKey: string, ref: string, kind: ReleaseKind): Promise<string> {
+  const t: Ticket = { k: hostKey, r: ref, kind, n: b64url(crypto.getRandomValues(new Uint8Array(18))), exp: Math.floor(Date.now() / 1000) + 120 }
+  const payload = b64url(enc.encode(JSON.stringify(t)))
+  const sig = new Uint8Array(await crypto.subtle.sign('HMAC', await hmacKey('release'), enc.encode(payload)))
+  return `${payload}.${b64url(sig)}`
+}
+
+export async function readReleaseTicket(ticket: string): Promise<Ticket | null> {
+  const [payload, sig] = ticket.split('.')
+  if (!payload || !sig) return null
+  try {
+    const ok = await crypto.subtle.verify('HMAC', await hmacKey('release'), fromB64url(sig), enc.encode(payload))
+    if (!ok) return null
+    const t = JSON.parse(new TextDecoder().decode(fromB64url(payload))) as Ticket
+    return t.exp > Date.now() / 1000 && (t.kind === 'free' || t.kind === 'credit') ? t : null
+  } catch {
+    return null
+  }
+}
+
+export const releaseUse = (hostKey: string, ref: string, kind: ReleaseKind) =>
+  ordana({ action: 'release', attachment_key: hostKey, end_user_ref: ref, uses: 1, kind })
 
 // ---------- Sign-in relay ----------
 // The popup's callback hands the code to our server, which finishes the sign-in and parks the session
@@ -268,6 +313,50 @@ export async function takeAnonUse(ref: string): Promise<number | null> {
     }
     throw e
   }
+}
+
+/**
+ * True the first time `id` is seen in the last 10 minutes, false after (a replayed release ticket).
+ * Reuses the sign-in relay's park-once/take-once store (10-minute life). Two calls racing in the same
+ * instant could both pass; a ticket is only good for 2 minutes and one use anyway.
+ */
+export async function firstUse(id: string): Promise<boolean> {
+  const seen = await takeSignIn(id)
+  await parkSignIn(id, { error: 'used' })
+  return seen === null
+}
+
+// ---------- "Open HeadlineFix" (maker_visible): sign the widget user straight in on our own site ----------
+// Needs SUPABASE_SERVICE_ROLE_KEY (server only). The app account is found or created by the widget's sub,
+// under a stand-in address, never the person's email: someone who signs up on the site with the same email
+// is only linked after we confirm that email ourselves. Their Ordana email, if any, is kept as unconfirmed metadata.
+export async function makerSignInLink(s: Omit<Session, 'exp'>, origin: string): Promise<string | null> {
+  const key = env('SUPABASE_SERVICE_ROLE_KEY')
+  const base = (env('SUPABASE_URL') ?? env('VITE_SUPABASE_URL'))?.replace(/\/+$/, '')
+  if (!key || !base) return null
+  const headers = { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }
+  const email = `${s.sub.toLowerCase()}@widget-users.headlinefix.invalid`
+  const created = await fetch(`${base}/auth/v1/admin/users`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      email,
+      email_confirm: true,
+      user_metadata: { name: s.name, ordana_sub: s.sub, unconfirmed_email: s.email },
+    }),
+  })
+  // 422: this sub's account already exists, which is the "find" half of find-or-create.
+  if (!created.ok && created.status !== 422) throw new Error(`Supabase create user failed (${created.status})`)
+  const res = await fetch(`${base}/auth/v1/admin/generate_link`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ type: 'magiclink', email }),
+  })
+  const d = (await res.json().catch(() => null)) as { hashed_token?: string; properties?: { hashed_token?: string } } | null
+  const hash = d?.hashed_token ?? d?.properties?.hashed_token
+  if (!res.ok || !hash) throw new Error(`Supabase generate_link failed (${res.status})`)
+  // One-time and short-lived (Supabase's OTP expiry); the hash goes in the fragment so it never reaches a log.
+  return `${origin}/ordana-widget/open#token_hash=${encodeURIComponent(hash)}`
 }
 
 export async function giveBackAnonUse(ref: string): Promise<void> {

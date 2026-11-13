@@ -2,6 +2,7 @@ import { local, session } from './storage'
 import {
   GONE_REASONS,
   SignedOutError,
+  WINDING_DOWN,
   type CheckResult,
   type Variant,
   type WidgetBackend,
@@ -28,6 +29,11 @@ type CheckResponse = {
   variant_round?: string | number | null
   signin?: 'ordana' | 'host' | null
   signin_label?: string | null
+  ordana_line?: string | null
+  buy_label?: string | null
+  maker_visible?: boolean
+  host_billed?: boolean
+  release_ticket?: string
 }
 
 /** The random id behind "anon_…" before sign-in. Kept in storage, or for this page load when storage is blocked. */
@@ -53,6 +59,11 @@ function toResult(r: CheckResponse): CheckResult {
     plan: r.plan,
     signin: r.signin ?? null,
     signinLabel: r.signin_label ?? null,
+    ordanaLine: 'ordana_line' in r ? (r.ordana_line ?? null) : undefined,
+    buyLabel: r.buy_label ?? null,
+    makerVisible: r.maker_visible,
+    hostBilled: r.host_billed,
+    releaseTicket: r.release_ticket ?? null,
   }
 }
 
@@ -80,6 +91,10 @@ export type LoadAnswer = {
   /** From the same reply: who signs people in on this host (host sign-in shows signinLabel). */
   signin?: 'ordana' | 'host' | null
   signinLabel?: string | null
+  /** host_winding_down: show nothing at all. */
+  hidden?: boolean
+  ordanaLine?: string | null
+  makerVisible?: boolean
 }
 
 /** The end_user_ref the server will use: the Ordana sub once signed in, else anon_<visitor id>. */
@@ -119,6 +134,9 @@ export async function loadCheck(hostKey: string): Promise<LoadAnswer> {
       gone: !r.entitled && r.reason !== null && GONE_REASONS.has(r.reason),
       signin: r.signin ?? null,
       signinLabel: r.signin_label ?? null,
+      hidden: !r.entitled && r.reason === WINDING_DOWN,
+      ordanaLine: 'ordana_line' in r ? (r.ordana_line ?? null) : undefined,
+      makerVisible: r.maker_visible,
     }
     session.set(keptKey, JSON.stringify(answer))
     return answer
@@ -286,6 +304,30 @@ export function createLiveBackend(hostKey: string): LiveBackend {
     },
     signIn: (signal) => signInPopup(hostKey, signal),
     signOut: clear,
+    release(ticket) {
+      void fetch(`${API}/release`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: hostKey, ticket }),
+        keepalive: true,
+      }).catch(() => {})
+    },
+    openMaker() {
+      // Open the tab inside the click (no popup blocker), then point it at the one-time link once we have it.
+      const home = `${window.location.origin}/`
+      const tab = window.open('about:blank', '_blank')
+      if (!tab) return
+      tab.opener = null
+      const token = local.get(TOKEN_KEY)
+      if (!token) {
+        tab.location.href = home
+        return
+      }
+      fetch(`${API}/open-link`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
+        .then((res) => res.json().catch(() => null))
+        .then((d) => (tab.location.href = typeof d?.url === 'string' ? d.url : home))
+        .catch(() => (tab.location.href = home))
+    },
     use: async () => toResult(await check(hostKey, 1)),
     status: async () => toResult(await check(hostKey, 0)),
     openCheckout(url) {

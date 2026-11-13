@@ -7,12 +7,25 @@ import {
   ordanaConnected,
   readJson,
   readSession,
+  releaseKind,
+  releaseTicket,
   takeAnonUse,
   type Entitlement,
 } from './_lib.js'
 
 const VISITOR = /^[A-Za-z0-9-]{8,64}$/
 const DISCONNECTED = new Set(['consent_withdrawn', 'unknown_ordana_id'])
+
+/** A spent use comes with a release ticket, so the embed can give it back if the rewrite then fails. */
+async function withTicket(key: string, ref: string, r: Entitlement): Promise<Entitlement & { release_ticket?: string }> {
+  const kind = releaseKind(r)
+  if (!kind || !ordanaConnected()) return r
+  try {
+    return { ...r, release_ticket: await releaseTicket(key, ref, kind) }
+  } catch {
+    return r // no ticket never blocks the rewrite itself
+  }
+}
 
 /**
  * A signed-out rewrite: our own count of the 3 free tries (per anon ref, server-side) comes first, then
@@ -77,13 +90,13 @@ export async function POST(request: Request): Promise<Response> {
     const endUserRef = session ? session.sub : visitor ? `anon_${visitor}` : null
     if (!endUserRef) return json({ error: 'Missing visitor.' }, 400)
 
-    if (!session && consume === 1 && ordanaConnected()) return json(await anonUse(key, endUserRef))
+    if (!session && consume === 1 && ordanaConnected()) return json(await withTicket(key, endUserRef, await anonUse(key, endUserRef)))
 
     const r = await checkEntitlement(key, endUserRef, consume)
     // They disconnected this widget in their Ordana account: end our session (the embed drops its token on 401)
     // so the widget offers "Continue with Ordana" again.
     if (session && r.reason && DISCONNECTED.has(r.reason)) return json({ error: 'disconnected' }, 401)
-    return json(r)
+    return json(consume === 1 ? await withTicket(key, endUserRef, r) : r)
   } catch (e) {
     // Fail closed: no rewrite without an answer from Ordana.
     const detail = e instanceof Error ? e.message : String(e)

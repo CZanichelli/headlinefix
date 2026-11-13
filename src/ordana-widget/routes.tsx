@@ -6,6 +6,7 @@ const EmbedPage = lazy(() => import('./EmbedPage'))
 const PreviewPage = lazy(() => import('./PreviewPage'))
 const SignInStart = lazy(() => import('./SignInPages').then((m) => ({ default: m.SignInStart })))
 const SignInCallback = lazy(() => import('./SignInPages').then((m) => ({ default: m.SignInCallback })))
+const OpenPage = lazy(() => import('./OpenPage'))
 
 const page = (el: ReactNode) => <Suspense fallback={null}>{el}</Suspense>
 
@@ -13,5 +14,6 @@ export const ordanaWidgetRoutes = [
   <Route key="ow-embed" path="/ordana-widget/embed" element={page(<EmbedPage />)} />,
   <Route key="ow-signin" path="/ordana-widget/signin" element={page(<SignInStart />)} />,
   <Route key="ow-callback" path="/ordana-widget/callback" element={page(<SignInCallback />)} />,
+  <Route key="ow-open" path="/ordana-widget/open" element={page(<OpenPage />)} />,
   <Route key="ow-preview" path="/ordana-widget-preview" element={page(<PreviewPage />)} />,
 ]

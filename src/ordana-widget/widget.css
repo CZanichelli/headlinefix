@@ -190,6 +190,12 @@
   font-size: 12px;
   line-height: 20px;
 }
+/* A sign-in or buy button with the check's ordana_line right under it. */
+.ow-with-line {
+  display: grid;
+  justify-items: start;
+  gap: var(--ow-s2);
+}
 .ow-inline {
   display: flex;
   flex-wrap: wrap;

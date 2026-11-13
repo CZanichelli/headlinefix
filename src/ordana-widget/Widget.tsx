@@ -7,6 +7,7 @@ import {
   isHostUser,
   NO_BRIDGE,
   SignedOutError,
+  WINDING_DOWN,
   type CheckResult,
   type HostBridge,
   type Mode,
@@ -75,11 +76,14 @@ export function WidgetFrame({
   look,
   mode,
   menuButton,
+  maker,
   children,
 }: {
   look: Look
   mode: Mode
   menuButton?: ReactNode
+  /** "by HeadlineFix · Open HeadlineFix", only while the check's maker_visible is true. */
+  maker?: ReactNode
   children: ReactNode
 }) {
   return (
@@ -96,6 +100,7 @@ export function WidgetFrame({
           <div className="ow-bar-text">
             <h2 className="ow-title">{TITLE}</h2>
             {look.host && <p className="ow-small ow-muted">Found via {look.host}</p>}
+            {maker}
           </div>
           {menuButton}
         </header>
@@ -126,7 +131,15 @@ type Props = {
   onUserChange?: () => void
   /** From the load check: this host signs people in itself, with this label. null = Continue with Ordana. */
   signin?: { label: string } | null
+  /** From the load check: the line under sign-in/buy buttons. undefined = no check has answered yet. */
+  ordanaLine?: string | null
+  /** From the load check: "by HeadlineFix" / "Open HeadlineFix" shown. */
+  makerVisible?: boolean
+  /** A check answered host_winding_down: the embed shows nothing at all. */
+  onHide?: () => void
 }
+
+const MAKER = 'HeadlineFix'
 
 export default function Widget({
   backend,
@@ -137,8 +150,18 @@ export default function Widget({
   initial = {},
   onUserChange,
   signin = null,
+  ordanaLine: firstOrdanaLine,
+  makerVisible: firstMakerVisible = true,
+  onHide,
 }: Props) {
   const [user, setUser] = useState<WidgetUser | null>(() => backend.currentUser())
+  // The words to show come from Ordana's latest answer; an answer that leaves one out keeps the last one.
+  const [ordanaLine, setOrdanaLine] = useState<string | null | undefined>(firstOrdanaLine)
+  const [makerVisible, setMakerVisible] = useState(firstMakerVisible)
+  const [buyLabel, setBuyLabel] = useState<string | null>(null)
+  const [hostBilled, setHostBilled] = useState(false)
+  // signin_label of the answer that asked for sign-in (e.g. "Continue with Ordana to buy").
+  const [stepLabel, setStepLabel] = useState<string | null>(null)
   // Host sign-in: show the host's signin_label and ask the host page, never "Continue with Ordana".
   const [hostSignin, setHostSignin] = useState(signin)
   const signinProp = signin?.label ?? null
@@ -218,6 +241,10 @@ export default function Widget({
     setCheckoutUrl(r.checkoutUrl ?? r.creditPackUrl)
     if (r.signin === 'host') setHostSignin({ label: r.signinLabel ?? 'Sign in' })
     else if (r.signin === 'ordana') setHostSignin(null)
+    if (r.ordanaLine !== undefined) setOrdanaLine(r.ordanaLine)
+    if (r.makerVisible !== undefined) setMakerVisible(r.makerVisible)
+    if (r.hostBilled !== undefined) setHostBilled(r.hostBilled)
+    if (r.buyLabel) setBuyLabel(r.buyLabel)
   }
 
   function askHost(then?: () => void | Promise<void>) {
@@ -250,12 +277,28 @@ export default function Widget({
       const r = await backend.use()
       applyCheck(r)
       if (r.entitled) {
-        setResults(rewriteHeadline(headline, audience))
+        let out: Rewrite[] = []
+        try {
+          out = rewriteHeadline(headline, audience)
+        } catch {
+          /* handled below */
+        }
+        if (!out.length) {
+          // The use was spent but no rewrite came out: give it back.
+          if (r.releaseTicket) backend.release?.(r.releaseTicket)
+          setError('Couldn’t rewrite that headline. Your free rewrite wasn’t used. Please try again.')
+          setPhase('error')
+          return
+        }
+        setResults(out)
         setAwaitingPayment(false)
         setPhase('results')
+      } else if (r.reason === WINDING_DOWN) {
+        onHide?.()
       } else if (r.reason && GONE_REASONS.has(r.reason)) {
         setPhase('gone')
       } else if (r.signInRequired && !signedIn) {
+        setStepLabel(r.signinLabel ?? null)
         setPhase(r.paywall ? 'paywall' : 'gate')
         // The host signs people in: tell it someone needs to, then run this rewrite once they're in.
         if (r.signin === 'host' || (r.signin == null && hostSignin)) askHost(() => runUse(true))
@@ -352,6 +395,23 @@ export default function Widget({
   )
 
   // After sign-in, `then` runs with the new user already set, so it must not read `user` from this render.
+  // The check's ordana_line, exactly (null: none). Before any check has answered: the host vouching for Ordana.
+  const ordanaLineText =
+    ordanaLine === undefined
+      ? look.host
+        ? `${look.host} uses Ordana for sign-in and payment.`
+        : 'Sign-in and payment by Ordana.'
+      : ordanaLine
+  const withOrdanaLine = (button: ReactNode) =>
+    ordanaLineText ? (
+      <div className="ow-with-line">
+        {button}
+        <p className="ow-small ow-muted">{ordanaLineText}</p>
+      </div>
+    ) : (
+      button
+    )
+
   const continueButton = (label: string, then?: () => void | Promise<void>) =>
     hostSignin ? (
       <button type="button" className="ow-btn ow-btn-primary" onClick={() => askHost(then)}>
@@ -367,10 +427,23 @@ export default function Widget({
         </button>
       </div>
     ) : (
-      <button type="button" className="ow-btn ow-btn-primary" onClick={() => signIn(then)}>
-        {label}
-      </button>
+      withOrdanaLine(
+        <button type="button" className="ow-btn ow-btn-primary" onClick={() => signIn(then)}>
+          {label}
+        </button>,
+      )
     )
+
+  const buyText = buyLabel ?? 'Upgrade for unlimited'
+
+  const maker = makerVisible ? (
+    <p className="ow-small ow-muted">
+      by {MAKER} ·{' '}
+      <button type="button" className="ow-link" onClick={() => backend.openMaker?.()}>
+        Open {MAKER}
+      </button>
+    </p>
+  ) : null
 
   const fromHost = (
     <span className="ow-tag" title={`Filled in from ${hostName}. You can change it.`}>
@@ -381,7 +454,7 @@ export default function Widget({
   const shareOn = bridge.canSend && consent === 'yes'
 
   return (
-    <WidgetFrame look={look} mode={mode} menuButton={menuButton}>
+    <WidgetFrame look={look} mode={mode} menuButton={menuButton} maker={maker}>
       {panel === null ? (
         phase === 'gone' ? (
           <GoneNotice />
@@ -508,7 +581,7 @@ export default function Widget({
                     </li>
                   ))}
                 </ul>
-                {continueButton('Continue with Ordana', () => runUse(true))}
+                {continueButton(stepLabel ?? 'Continue with Ordana', () => runUse(true))}
                 {signInError && <p className="ow-small ow-error-text">{signInError}</p>}
               </section>
             )}
@@ -559,6 +632,7 @@ export default function Widget({
                   signedIn={user !== null}
                   checkoutUrl={checkoutUrl}
                   onUpgrade={upgrade}
+                  buyText={buyText}
                 />
               </>
             )}
@@ -568,18 +642,23 @@ export default function Widget({
                 <div>
                   <p className="ow-strong">You&apos;ve used your free rewrites</p>
                   <p className="ow-small ow-muted">
-                    {user
-                      ? 'Upgrade for unlimited rewrites. Checkout opens in a new tab, and you’ll see the price before you pay. Your headline stays right here.'
-                      : `${hostSignin ? 'Sign in' : 'Continue with Ordana'} to upgrade for unlimited rewrites. You’ll see the price before you pay, and your headline stays right here.`}
+                    {hostBilled
+                      ? // The host charges for it: no price, and the button opens the host's own upgrade page.
+                        user
+                        ? 'Upgrade for unlimited rewrites. It opens in a new tab, and your headline stays right here.'
+                        : 'Sign in to upgrade for unlimited rewrites. Your headline stays right here.'
+                      : user
+                        ? 'Upgrade for unlimited rewrites. Checkout opens in a new tab, and you’ll see the price before you pay. Your headline stays right here.'
+                        : `${hostSignin ? 'Sign in' : 'Continue with Ordana'} to upgrade for unlimited rewrites. You’ll see the price before you pay, and your headline stays right here.`}
                   </p>
                 </div>
-                {user ? (
-                  <button type="button" className="ow-btn ow-btn-primary" onClick={upgrade} disabled={!checkoutUrl}>
-                    Upgrade for unlimited
-                  </button>
-                ) : (
-                  continueButton('Continue with Ordana to buy', () => runUse(true))
-                )}
+                {user
+                  ? withOrdanaLine(
+                      <button type="button" className="ow-btn ow-btn-primary" onClick={upgrade} disabled={!checkoutUrl}>
+                        {buyText}
+                      </button>,
+                    )
+                  : continueButton(stepLabel ?? 'Continue with Ordana to buy', () => runUse(true))}
                 {user && awaitingPayment && (
                   <button type="button" className="ow-btn" onClick={() => void runUse()}>
                     I&apos;ve paid, continue
@@ -682,11 +761,13 @@ function UsesHint({
   signedIn,
   checkoutUrl,
   onUpgrade,
+  buyText,
 }: {
   remaining: number | null
   signedIn: boolean
   checkoutUrl: string | null
   onUpgrade: () => void
+  buyText: string
 }) {
   if (remaining === null) return null
   // Signed out it's the 3 tries the server counts, never a bigger number from Ordana.
@@ -705,7 +786,7 @@ function UsesHint({
         <>
           {' '}
           <button type="button" className="ow-link" onClick={onUpgrade}>
-            Upgrade for unlimited
+            {buyText}
           </button>
         </>
       )}
@@ -858,13 +939,24 @@ function BillingPanel({
       </div>
       {!paid && url && (
         <button type="button" className="ow-btn ow-btn-primary ow-start" onClick={() => onUpgrade(url)}>
-          Upgrade for unlimited
+          {state.buyLabel ?? 'Upgrade for unlimited'}
         </button>
       )}
-      <a className="ow-small ow-plain-link" href={state.manageUrl ?? ORDANA_BILLING} target="_blank" rel="noopener">
-        Manage payment in Ordana ↗
-      </a>
-      <p className="ow-small ow-muted">Card, receipts and cancelling are in your Ordana account.</p>
+      {state.hostBilled ? (
+        // The host charges for it: its own billing, never Ordana's.
+        state.manageUrl && (
+          <a className="ow-small ow-plain-link" href={state.manageUrl} target="_blank" rel="noopener">
+            Manage billing ↗
+          </a>
+        )
+      ) : (
+        <>
+          <a className="ow-small ow-plain-link" href={state.manageUrl ?? ORDANA_BILLING} target="_blank" rel="noopener">
+            Manage payment in Ordana ↗
+          </a>
+          <p className="ow-small ow-muted">Card, receipts and cancelling are in your Ordana account.</p>
+        </>
+      )}
     </section>
   )
 }

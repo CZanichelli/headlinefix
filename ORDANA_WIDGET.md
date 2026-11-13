@@ -5,8 +5,9 @@ Manage it at https://platform.joinordana.com/scenario/ab5b4b1f-61d9-4db7-bb2a-ba
 
 - **Embed** (what hosts mount): `https://headlinefix.vercel.app/ordana-widget/embed?key=wak_…&mode=card|page|modal`
 - **Preview** (fictional data, no auth, no network): `https://headlinefix.vercel.app/ordana-widget-preview`
-- **White-label**: no HeadlineFix name, logo, colours or links anywhere in the widget. Ordana appears only for
-  "Continue with Ordana" and its checkout. The ⋯ menu: who you are (Continue with Ordana / name + "Signed in with Ordana ↗")
+- **Naming HeadlineFix** follows the check's `maker_visible` (missing = true): "by HeadlineFix · Open HeadlineFix" under the
+  title while true, HeadlineFix nowhere while false. There is no logo. Ordana appears only for "Continue with Ordana", the
+  check's `ordana_line` and its checkout. The ⋯ menu: who you are (Continue with Ordana / name + "Signed in with Ordana ↗")
   · Settings · Plan & billing · Help · Sign out.
 - **Offer** (set in Ordana, not in code): 3 rewrites without an account, then 20 more free once signed in with Ordana
   (one-time, no monthly reset), then €5/month for unlimited rewrites. Split: HeadlineFix 50% · host 40% · Ordana 10%.
@@ -17,8 +18,8 @@ Manage it at https://platform.joinordana.com/scenario/ab5b4b1f-61d9-4db7-bb2a-ba
 
 | Path | What |
 | --- | --- |
-| `src/ordana-widget/` | All widget UI: `Widget.tsx` (shared screens), `EmbedPage.tsx` (embed + host messages), `PreviewPage.tsx`, `SignInPages.tsx` (sign-in popup), `liveBackend.ts`, `theme.ts`, `storage.ts`, `types.ts`, `widget.css`, `routes.tsx` |
-| `api/ordana-widget/` | Vercel functions: `authorize.ts`, `session.ts`, `host-signin.ts`, `check.ts`, `whoami.ts`, shared `_lib.ts`, `_env.d.ts` |
+| `src/ordana-widget/` | All widget UI: `Widget.tsx` (shared screens), `EmbedPage.tsx` (embed + host messages), `PreviewPage.tsx`, `SignInPages.tsx` (sign-in popup), `OpenPage.tsx` ("Open HeadlineFix" landing), `liveBackend.ts`, `theme.ts`, `storage.ts`, `types.ts`, `widget.css`, `routes.tsx` |
+| `api/ordana-widget/` | Vercel functions: `authorize.ts`, `session.ts`, `host-signin.ts`, `check.ts`, `release.ts`, `open-link.ts`, `whoami.ts`, shared `_lib.ts`, `_env.d.ts` |
 | `supabase/ordana-widget.sql` | Sign-in relay table + two functions, signed-out use counter table + two functions (run in the Supabase SQL editor; safe to re-run) |
 | `src/App.tsx` | Two lines: import and render `ordanaWidgetRoutes` |
 | `vercel.json` | SPA rewrite skips `/api/`; `frame-ancestors *` header on `/ordana-widget/embed` |
@@ -32,6 +33,7 @@ Manage it at https://platform.joinordana.com/scenario/ab5b4b1f-61d9-4db7-bb2a-ba
 | --- | --- | --- |
 | `ORDANA_WIDGET_KEY` | Required (Your widget → Connect your server) | Server key, the only Ordana variable. `wsk_live_…` in Production, `wsk_test_…` only locally. Also sent as the OIDC client secret unless `ORDANA_OIDC_CLIENT_SECRET` is set. Without it the widget runs unmetered, nothing is counted and sign-in is off. |
 | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` | Already set for the app | Also used server-side by the sign-in relay (`SUPABASE_URL` / `SUPABASE_ANON_KEY` override them). |
+| `SUPABASE_SERVICE_ROLE_KEY` | Required for "Open HeadlineFix" to sign people in | Supabase → Project Settings → API → `service_role` key. Server only (never `VITE_`). Without it "Open HeadlineFix" just opens the site, signed out. |
 | `ORDANA_API_URL`, `ORDANA_OIDC_CLIENT_SECRET` | Optional overrides | Default to Ordana's entitlement endpoint and `ORDANA_WIDGET_KEY`. |
 
 Redeploy after adding or changing any of them. `ORDANA_WIDGET_SESSION_SECRET` and `ORDANA_OIDC_CLIENT_ID` are no longer read
@@ -76,6 +78,24 @@ on the next request):
   read once). The embed polls `GET /api/ordana-widget/session?state=…` every 2s for up to 5 minutes (and on focus/visibility);
   the popup's postMessage only makes it ask at once. The widget updates in place, no reload. No user table: identity is `sub`.
   In white-label mode the email may be a `@hidden.id.joinordana.com` stand-in: it is never shown and never mailed.
+- **Words from the check** (never hard-coded; an answer that leaves a field out keeps the last value):
+  - `ordana_line`: one small muted line, exactly as sent, under every "Continue with Ordana" button and under the paywall's
+    Buy button; nothing when null. Before any check answered: "<host> uses Ordana for sign-in and payment." (`host=` of the
+    embed URL), or "Sign-in and payment by Ordana." without one.
+  - `signin_label` of the answer that asked for sign-in (e.g. "Continue with Ordana to buy"); `buy_label` on every Buy button
+    (fallback "Upgrade for unlimited").
+  - `host_billed: true`: no price wording, `checkout_url` is the host's own upgrade page (new tab), Plan & billing shows only
+    `manage_url` as "Manage billing" and nothing about Ordana.
+  - `maker_visible`: see "Naming HeadlineFix" above. "Open HeadlineFix" opens a new tab in the click; signed in, it goes through
+    `POST /api/ordana-widget/open-link`, which finds or creates the app account for the widget's sub (under a stand-in address,
+    `<sub>@widget-users.headlinefix.invalid`, with their Ordana email only as unconfirmed metadata, so nobody is linked to an
+    existing account by email without us confirming it) and returns a one-time Supabase link to `/ordana-widget/open`,
+    which signs them in and goes to `/app`. Signed out, or without `SUPABASE_SERVICE_ROLE_KEY`, it opens the site.
+  - `host_winding_down` (load check or any later check): nothing at all, no frame, and `resize` with height 0.
+- **Release**: every spent use (`consume: 1`, reason `free` or a credit) comes back with a `release_ticket` (signed with the
+  session secret for this purpose only, 2 minutes, one use, naming the ref and kind itself). If the rewrite then produces
+  nothing, the embed posts it to `/api/ordana-widget/release`, which sends Ordana `release` (`uses: 1`, `kind`) and gives a
+  signed-out try back to our own count. Replays are refused (409) via the sign-in relay's take-once store.
 - **Host sign-in** (`"host_accounts": true` in the widget JSON): for hosts that sign their own users in. On every load the
   embed posts `{ type: "ordana-widget:signin", v: 1, reason: "load" }` to its parent and accepts
   `{ type: "ordana-widget:identity", v: 1, token }` only when `event.source === window.parent`. The token goes to
@@ -84,8 +104,7 @@ on the next request):
   as `end_user_ref`. Signed in place, no popup. `token: null` signs out; a different sub replaces the first person; a token
   Ordana refuses signs out. When a check answers `signin: "host"` (the load check's answer is kept), every "Continue with Ordana"
   becomes the check's `signin_label`, and a rewrite that needs sign-in posts `{ ..., reason: "needed" }` and runs once the host
-  has signed the person in. The menu says "Signed in through <host>". Not built: `maker_visible` (the widget is white-label, so
-  the maker never shows anyway) and "Open <my product>".
+  has signed the person in. The menu says "Signed in through <host>".
 - `/api/ordana-widget/whoami` reports only `livemode`, `billing_live`, the widget name, the number of hosts and the public
   `oidc.client_id` / `oidc.issuer`, and `session_secret: true/false` (whether Ordana sent one, never its value).
 - **Theme** URL parameters (`theme, accent, accent_text, bg, surface, text, muted, border, radius, font, frame=none, host, fit=fill`)
@@ -136,7 +155,7 @@ in the load check); the embed never picks one itself, except version a when the 
 
 Run this after every change to the widget, against **production**:
 
-1. **Declared = built.** In the embed, every ⋯ menu item works (who you are, Settings, Plan & billing, Help, Sign out). The only sign-in anywhere is "Continue with Ordana". There is no HeadlineFix name, logo or link on any screen. Check both versions; price, free rewrites and paywall must be the same in each.
+1. **Declared = built.** In the embed, every ⋯ menu item works (who you are, Settings, Plan & billing, Help, Sign out). The only sign-ins are "Continue with Ordana" and, on hosts with `signin: "host"`, the host's own. "by HeadlineFix · Open HeadlineFix" shows only while the check's `maker_visible` is true; the check's `ordana_line` sits under every Continue with Ordana and Buy button (none when null). Check both versions; price, free rewrites and paywall must be the same in each.
 2. **Framing.** Frame the production embed from another origin (a local HTML page served over http) with the resize listener, in a private window, logged out. Repeat with third-party storage blocked: it must not crash.
 3. **Widths.** Test 280, 390, 768 and 1200px, and drag between them. There should be no empty block under the widget, no inner scrollbar, no narrow centred column, and nothing cut off. The ⋯ menu must fit.
 4. **Looks.** Test light in a white card; `theme=dark&frame=none&bg=<card colour>` in a dark card; and dark with `frame=none` in a white card. Everything must stay readable. Then try `accent=9fe3d6` (pale): button text must stay readable.

@@ -21,7 +21,19 @@ export type CheckResult = {
   /** "host": this host signs people in itself (show signinLabel, never "Continue with Ordana"). null = keep what we knew. */
   signin?: 'ordana' | 'host' | null
   signinLabel?: string | null
+  // The words to show, from Ordana. undefined = this answer didn't say (keep what we knew).
+  /** Under sign-in and buy buttons; null = show no line. */
+  ordanaLine?: string | null
+  buyLabel?: string | null
+  makerVisible?: boolean
+  /** The host charges its users itself: show no price; checkoutUrl is the host's own upgrade page. */
+  hostBilled?: boolean
+  /** Gives this use back if the rewrite fails after it was spent. */
+  releaseTicket?: string | null
 }
+
+/** Load/check reason: the host is phasing the widget out. Show nothing at all (height 0). */
+export const WINDING_DOWN = 'host_winding_down'
 
 /** Signed in through the host's own sign-in (Ordana's hid_… sub), not with Ordana. */
 export const isHostUser = (u: WidgetUser | null) => Boolean(u?.id.startsWith('hid_'))
@@ -42,6 +54,10 @@ export interface WidgetBackend {
   requestHostSignIn?(): void
   /** Called when the signed-in user changes from outside the widget (the host signed someone in or out). */
   subscribe?(listener: (user: WidgetUser | null) => void): () => void
+  /** A rewrite failed after its use was spent: give it back. */
+  release?(ticket: string): void
+  /** "Open HeadlineFix" in a new tab, signed straight in when possible. Call straight from a click. */
+  openMaker?(): void
 }
 
 /** The fields declared in ui.context.in. A host may send nothing else; anything else is dropped. */

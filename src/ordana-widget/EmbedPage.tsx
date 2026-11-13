@@ -102,6 +102,13 @@ export default function EmbedPage() {
     return () => window.removeEventListener('message', onMessage)
   }, [backend])
 
+  // host_winding_down (load check, or a later check): show nothing at all and tell the host our height is 0.
+  const [windingDown, setWindingDown] = useState(false)
+  const hidden = windingDown || load?.hidden === true
+  useEffect(() => {
+    if (hidden && window.parent !== window) window.parent.postMessage({ type: 'ordana-widget:resize', height: 0 }, '*')
+  }, [hidden])
+
   // Hug the content and tell the host page our height on every change.
   useEffect(() => {
     const el = shell.current
@@ -118,8 +125,8 @@ export default function EmbedPage() {
   }, [look.fill])
 
   return (
-    <div ref={shell} className="ow-shell" data-framed={look.framed}>
-      {!validKey ? (
+    <div ref={shell} className="ow-shell" data-framed={look.framed} style={hidden ? { display: 'none' } : undefined}>
+      {hidden ? null : !validKey ? (
         <WidgetFrame look={look} mode={mode}>
           <section className="ow-panel" role="alert">
             <p className="ow-strong">This widget isn&apos;t set up yet</p>
@@ -141,6 +148,9 @@ export default function EmbedPage() {
           bridge={bridge}
           onUserChange={askLoad}
           signin={load.signin === 'host' ? { label: load.signinLabel ?? 'Sign in' } : null}
+          ordanaLine={load.ordanaLine}
+          makerVisible={load.makerVisible !== false}
+          onHide={() => setWindingDown(true)}
         />
       ) : (
         <WidgetFrame look={look} mode={mode}>
